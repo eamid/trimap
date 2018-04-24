@@ -180,6 +180,6 @@ If you use TriMap, please cite our current reference on ArXiv:
 License
 -------
 
-Please see LICENSE.txt.
+Please see the LICENSE file.
 
 
