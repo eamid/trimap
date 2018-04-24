@@ -82,7 +82,7 @@ Fashion MNIST (*n = 70,000, d = 784*)
 
 TV News (*n = 129,685, d = 50*)
 
-.. image:: results/tvnews_trimap.png =100x
+.. image:: results/tvnews_trimap.png
     :alt: TriMap embedding of the TV News dataset
 
 380k+ Lyrics (*n = 266,557, d = 256*)
