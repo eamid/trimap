@@ -4,7 +4,7 @@
 
 TriMap: Dimensionality Reduction Using Triplet Constraints
 
-@author: Ehsan Amid
+@author: Ehsan Amid <eamid@ucsc.edu>
 """
 
 
@@ -374,8 +374,8 @@ class TRIMAP(BaseEstimator):
     def __init__(self,
                  n_dims=2,
                  n_inliers=50,
-                 n_outliers=10,
-                 n_random=5,
+                 n_outliers=5,
+                 n_random=10,
                  lr=10000.0,
                  n_iters = 1500,
                  verbose=True
@@ -385,7 +385,7 @@ class TRIMAP(BaseEstimator):
         self.n_outliers = n_outliers
         self.n_random = n_random
         self.lr = lr
-        self.n_inliers = n_inliers
+        self.n_iters = n_iters
         self.verbose = verbose
 
         if self.n_dims < 2:
