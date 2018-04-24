@@ -15,7 +15,6 @@ from sklearn.neighbors import NearestNeighbors as knn
 from sklearn.decomposition import TruncatedSVD
 import numpy as np
 import time
-import sys
 
 
 @numba.njit()
@@ -314,12 +313,11 @@ def trimap(X, n_dims, n_inliers, n_outliers, n_random, lr, n_iters, Yinit, verbo
     triplets, weights = generate_triplets(X, n_inliers, n_outliers, n_random, verbose)
     if verbose:
         print("sampled triplets")
-    
+        
     if Yinit is None:
         Y = np.random.normal(size=[n, n_dims]) * 0.0001
     else:
-        Y = Yinit
-        
+        Y = Yinit      
     C = np.inf
     tol = 1e-7
     n_triplets = float(triplets.shape[0])
@@ -328,7 +326,7 @@ def trimap(X, n_dims, n_inliers, n_outliers, n_random, lr, n_iters, Yinit, verbo
         print("running TriMap")
     for itr in range(n_iters):
         old_C = C
-        grad = trimap_grad(Y, n_inlier, n_outlier, triplets, weights)
+        grad = trimap_grad(Y, n_inliers, n_outliers, triplets, weights)
         C = grad[-1,0]
         n_viol = grad[-1,1]
             
@@ -374,7 +372,7 @@ class TRIMAP(BaseEstimator):
     """
 
     def __init__(self,
-    			 n_dims=2,
+                 n_dims=2,
                  n_inliers=50,
                  n_outliers=10,
                  n_random=5,
@@ -382,7 +380,6 @@ class TRIMAP(BaseEstimator):
                  n_iters = 1500,
                  verbose=True
                  ):
-
     	self.n_dims = n_dims
         self.n_inliers = n_inliers
         self.n_outliers = n_outliers
@@ -402,7 +399,6 @@ class TRIMAP(BaseEstimator):
         if self.lr <= 0:
             raise ValueError('The learning rate must be a positive value.')
 
-
         if self.verbose:
             print("TRIMAP(n_inliers={}, n_outliers={}, n_random={}, "
                   "lr={}, n_iters={}, verbose={})".format(
@@ -421,9 +417,8 @@ class TRIMAP(BaseEstimator):
         """
         X = X.astype(np.float64)
         
-        self.embedding_ = trimap(X, self.n_dims, self.n_inliers, self.n_outliers, self.n_random,
-         self.lr, self.n_iters, init, self.verbose)
-
+        self.embedding_ = trimap(X, self.n_dims, self.n_inliers, self.n_outliers, self.n_random, 
+                                 self.lr, self.n_iters, init, self.verbose)
         return self
 
     def fit_transform(self, X, init = None):
