@@ -5,7 +5,7 @@ def readme():
         return readme_file.read()
 
 configuration = {
-    'name' : 'trimap',
+    'name' : 'trimap-dr',
     'version': '0.1.0',
     'description' : 'TriMap: Dimensionality Reduction Using Triplets',
     'long_description' : readme(),
@@ -28,7 +28,7 @@ configuration = {
     'license' : 'LICENSE.txt',
     'packages' : ['trimap'],
     'install_requires' : ['scikit-learn >= 0.16',
-                          'numba >= 0.34'
+                          'numba >= 0.34',
                           'annoy >= 1.11']
     }
 
