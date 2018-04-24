@@ -107,7 +107,7 @@ If you have all the requirements installed, you can use pip:
 
 .. code:: bash
 
-    pip install trimap-dr
+    pip install trimap
 
 An alternative is to install the dependencies manually using anaconda and using pip 
 to install TriMap:
@@ -118,7 +118,7 @@ to install TriMap:
     conda install scikit-learn
     conda install numba
     conda install annoy
-    pip install trimap-dr
+    pip install trimap
 
 For a manual install get this package:
 

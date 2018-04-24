@@ -5,7 +5,7 @@ def readme():
         return readme_file.read()
 
 configuration = {
-    'name' : 'trimap-dr',
+    'name' : 'trimap',
     'version': '1.2.0.dev1',
     'description' : 'TriMap: Dimensionality Reduction Using Triplets',
     'long_description' : readme(),
