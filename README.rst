@@ -39,11 +39,9 @@ TriMap with the default parameters, simply do:
 Unlike other dimensionality reduction method, TriMap only has a few parameters
 to tune:
 
- -  ``n_neighbors``: Number of nearest neighbors for forming the nearest neighbor 
- triplets (default = 50).
+ -  ``n_neighbors``: Number of nearest neighbors for forming the nearest neighbor triplets (default = 50).
 
- -  ``n_outliers``: Number of outliers for forming the nearest neighbor triplets
- (default = 5).
+ -  ``n_outliers``: Number of outliers for forming the nearest neighbor triplets (default = 5).
 
  -  ``n_random``: Number of random triplets per point (default = 5).
 
@@ -84,12 +82,12 @@ Fashion MNIST (*n = 70,000, d = 784*)
 
 TV News (*n = 129,685, d = 50*)
 
-.. image:: results/tvnews_trimap.png
+.. image:: results/tvnews_trimap.png =100x
     :alt: TriMap embedding of the TV News dataset
 
 380k+ Lyrics (*n = 266,557, d = 256*)
 
-.. image:: results/tvnews_trimap.png
+.. image:: results/lyrics380k_trimap.png
     :alt: TriMap embedding of the 380k+ Lyrics dataset
 
 ----------
