@@ -6,7 +6,7 @@ def readme():
 
 configuration = {
     'name' : 'trimap-dr',
-    'version': '0.1.0',
+    'version': '1.2.0.dev1',
     'description' : 'TriMap: Dimensionality Reduction Using Triplets',
     'long_description' : readme(),
     'classifiers' : [
@@ -23,8 +23,8 @@ configuration = {
     ],
     'keywords' : 'dimension reduction triplet t-sne largevis',
     'url' : 'http://github.com/eamid/trimap',
-    'maintainer' : 'Ehsan Amid',
-    'maintainer_email' : 'eamid@ucsc.edu',
+    'author' : 'Ehsan Amid',
+    'author_email' : 'eamid@ucsc.edu',
     'license' : 'LICENSE.txt',
     'packages' : ['trimap'],
     'install_requires' : ['scikit-learn >= 0.16',
