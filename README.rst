@@ -9,7 +9,7 @@ are of the form "point *i* is closer to point *j* than point *k*". The triplets 
 sampled from the high-dimensional reprsesentation of the points and a weighting 
 scheme is used to reflect the importance of each triplet. 
 
-In `our paper on ArXiv <https://arxiv.org/abs/1803.00854>`_:
+In our `paper <https://arxiv.org/abs/1803.00854>`_ on ArXiv:
 
 Amid, E, Warmuth, M. K, *A more globally accurate dimensionality reduction method using triplets*, ArXiv e-prints 1803.00854, 2018
 
