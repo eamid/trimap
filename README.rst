@@ -39,11 +39,11 @@ TriMap with the default parameters, simply do:
 Unlike other dimensionality reduction method, TriMap only has a few parameters
 to tune:
 
- -  ``n_neighbors``: Number of nearest neighbors for forming the nearest neighbor triplets (default = 50).
+ -  ``n_inliers``: Number of nearest neighbors for forming the nearest neighbor triplets (default = 50).
 
  -  ``n_outliers``: Number of outliers for forming the nearest neighbor triplets (default = 5).
 
- -  ``n_random``: Number of random triplets per point (default = 5).
+ -  ``n_random``: Number of random triplets per point (default = 10).
 
  -  ``lr``: Learning rate (default = 10000.0).
 
@@ -58,9 +58,9 @@ An example of adjusting these parameters:
 
     digits = load_digits()
 
-    embedding = trimap.TRIMAP(n_neighbors=20,
+    embedding = trimap.TRIMAP(n_inliers=20,
                               n_outliers=10,
-                              n_random=10).fit_transform(digits.data)
+                              n_random=5).fit_transform(digits.data)
 
 
 --------
