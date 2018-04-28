@@ -15,7 +15,10 @@ from sklearn.neighbors import NearestNeighbors as knn
 from sklearn.decomposition import TruncatedSVD
 import numpy as np
 import time
+import sys
 
+if sys.version_info < (3,):
+    range = xrange
 
 @numba.njit()
 def euclid_dist(x1, x2):
@@ -77,7 +80,7 @@ def sample_knn_triplets(P, nbrs, n_inlier, n_outlier):
     """
     n, n_neighbors = nbrs.shape
     triplets = np.empty((n * n_inlier * n_outlier, 3), dtype=np.int64)
-    for i in xrange(n):
+    for i in range(n):
         sort_indices = np.argsort(-P[i,:])
         for j in range(n_inlier):
             sim = nbrs[i,sort_indices[j+1]]
@@ -113,7 +116,7 @@ def sample_random_triplets(X, n_random, sig):
     """
     n = X.shape[0]
     rand_triplets = np.empty((n * n_random, 4), dtype=np.float64)
-    for i in xrange(n):
+    for i in range(n):
         for j in range(n_random):
             sim = np.random.choice(n)
             while sim == i:
@@ -189,7 +192,7 @@ def find_weights(triplets, P, nbrs, distances, sig):
     """
     n_triplets = triplets.shape[0]
     weights = np.empty(n_triplets, dtype=np.float64)
-    for t in xrange(n_triplets):
+    for t in range(n_triplets):
         i = triplets[t,0]
         sim = 0
         while(nbrs[i,sim] != triplets[t,1]):
@@ -211,19 +214,19 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, verbose = True):
         knn_tree = knn(n_neighbors= n_extra, algorithm='auto').fit(X)
         distances, nbrs = knn_tree.kneighbors(X)
         distances = np.empty((n,n_extra), dtype=np.float64)
-        for i in xrange(n):
-            for j in xrange(n_extra):
+        for i in range(n):
+            for j in range(n_extra):
                 distances[i,j] = euclid_dist(X[i,:], X[nbrs[i,j],:])
     else: # use annoy
         tree = AnnoyIndex(dim)
-        for i in xrange(n):
+        for i in range(n):
             tree.add_item(i, X[i,:])
         tree.build(10)
         nbrs = np.empty((n,n_extra), dtype=np.int64)
         distances = np.empty((n,n_extra), dtype=np.float64)
-        for i in xrange(n):
+        for i in range(n):
             nbrs[i,:] = tree.get_nns_by_item(i, n_extra)
-            for j in xrange(n_extra):
+            for j in range(n_extra):
                 distances[i,j] = tree.get_distance(i, nbrs[i,j])
     if verbose:
         print("found nearest neighbors")
@@ -233,10 +236,10 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, verbose = True):
     n_triplets = triplets.shape[0]
     outlier_dist = np.empty(n_triplets, dtype=np.float64)
     if exact:
-        for t in xrange(n_triplets):
+        for t in range(n_triplets):
             outlier_dist[t] = np.sqrt(np.sum((X[triplets[t,0],:] - X[triplets[t,2],:])**2))
     else:
-        for t in xrange(n_triplets):
+        for t in range(n_triplets):
             outlier_dist[t] = tree.get_distance(triplets[t,0], triplets[t,2])
     weights = find_weights(triplets, P, nbrs, outlier_dist, sig)
     if n_random > 0:
@@ -253,8 +256,8 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, verbose = True):
 @numba.njit('void(f8[:,:],f8[:,:],f8)', parallel=True, nogil=True)
 def update_embedding(Y, grad, lr):
     n, dim = Y.shape
-    for i in xrange(n):
-        for d in xrange(dim):
+    for i in range(n):
+        for d in range(dim):
             Y[i,d] -= lr * grad[i,d]
             
 @numba.njit('f8[:,:](f8[:,:],i8,i8,i8[:,:],f8[:])', parallel=True, nogil=True)
@@ -267,28 +270,28 @@ def trimap_grad(Y, n_inlier, n_outlier, triplets, weights):
     n_viol = 0.0
     loss = 0.0
     n_knn_triplets = n * n_inlier * n_outlier
-    for t in xrange(n_triplets):
+    for t in range(n_triplets):
         i = triplets[t,0]
         j = triplets[t,1]
         k = triplets[t,2]
         if (t % n_outlier) == 0 or (t >= n_knn_triplets): # update y_ij, d_ij
             d_ij = 1.0
             d_ik = 1.0
-            for d in xrange(dim):
+            for d in range(dim):
                 y_ij[d] = Y[i,d] - Y[j,d]
                 y_ik[d] = Y[i,d] - Y[k,d]
                 d_ij += y_ij[d]**2
                 d_ik += y_ik[d]**2
         else:
             d_ik = 1.0
-            for d in xrange(dim):
+            for d in range(dim):
                 y_ik[d] = Y[i,d] - Y[k,d]
                 d_ik += y_ik[d]**2
         if (d_ij > d_ik):
             n_viol += 1.0
         loss += weights[t] * 1.0/(1.0 + d_ik/d_ij)
         w = weights[t]/(d_ij + d_ik)**2
-        for d in xrange(dim):
+        for d in range(dim):
             gs = y_ij[d] * d_ik * w
             go = y_ik[d] * d_ij * w
             grad[i,d] += gs - go
@@ -305,8 +308,8 @@ def trimap(X, n_dims, n_inliers, n_outliers, n_random, lr, n_iters, Yinit, verbo
         t = time.time()
     n, dim = X.shape
     if verbose:
-        print "running TriMap on %d points with dimension %d" % (n, dim)
-        print "pre-processing"
+        print("running TriMap on %d points with dimension %d" % (n, dim))
+        print("pre-processing")
     X -= np.min(X)
     X /= np.max(X)
     X -= np.mean(X,axis=0)
@@ -341,9 +344,9 @@ def trimap(X, n_dims, n_inliers, n_outliers, n_random, lr, n_iters, Yinit, verbo
         
         if verbose:
             if (itr+1) % 100 == 0:
-                print 'Iteration: %4d, Loss: %3.3f, Violated triplets: %0.4f' % (itr+1, C, n_viol/n_triplets*100.0)
+                print('Iteration: %4d, Loss: %3.3f, Violated triplets: %0.4f' % (itr+1, C, n_viol/n_triplets*100.0))
     if verbose:
-        print "Elapsed time %s" % (time.time() - t)
+        print("Elapsed time %s" % (time.time() - t))
     return Y
 
 class TRIMAP(BaseEstimator):
@@ -380,7 +383,7 @@ class TRIMAP(BaseEstimator):
                  n_iters = 1500,
                  verbose=True
                  ):
-    	self.n_dims = n_dims
+        self.n_dims = n_dims
         self.n_inliers = n_inliers
         self.n_outliers = n_outliers
         self.n_random = n_random
