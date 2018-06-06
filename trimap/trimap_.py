@@ -5,6 +5,14 @@
 TriMap: Dimensionality Reduction Using Triplet Constraints
 
 @author: Ehsan Amid <eamid@ucsc.edu>
+
+Reference:
+@article{Amid2018AMG,
+  title={A more globally accurate dimensionality reduction method using triplets},
+  author={Ehsan Amid and Manfred K. Warmuth},
+  journal={{arXiv preprint arXiv:1803.00854},
+  year={2018}
+}
 """
 
 
@@ -15,6 +23,7 @@ from sklearn.neighbors import NearestNeighbors as knn
 from sklearn.decomposition import TruncatedSVD
 import numpy as np
 import time
+import datetime
 import sys
 
 if sys.version_info < (3,):
@@ -204,13 +213,13 @@ def find_weights(triplets, P, nbrs, distances, sig):
         weights[t] = p_sim/p_out
     return weights
 
-def generate_triplets(X, n_inlier, n_outlier, n_random, verbose = True):
+def generate_triplets(X, n_inlier, n_outlier, n_random, weight_adj = False, verbose = True):
     n, dim = X.shape
-    n_extra = max(n_inlier, 70)
-    exact = n <= 1e4 or dim <= 50
-    if exact: # do exact knn search
-        if dim > 50:
-            X = TruncatedSVD(n_components=50, random_state=0).fit_transform(X)
+    n_extra = max(n_inlier, 150)
+    if dim > 50:
+        X = TruncatedSVD(n_components=50, random_state=0).fit_transform(X)
+        dim = 50
+    if n <= 20000: # do exact knn search
         knn_tree = knn(n_neighbors= n_extra, algorithm='auto').fit(X)
         distances, nbrs = knn_tree.kneighbors(X)
         distances = np.empty((n,n_extra), dtype=np.float64)
@@ -224,10 +233,16 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, verbose = True):
         tree.build(10)
         nbrs = np.empty((n,n_extra), dtype=np.int64)
         distances = np.empty((n,n_extra), dtype=np.float64)
+        dij = np.empty(n_extra, dtype=np.float64)
         for i in range(n):
             nbrs[i,:] = tree.get_nns_by_item(i, n_extra)
             for j in range(n_extra):
-                distances[i,j] = tree.get_distance(i, nbrs[i,j])
+                dij[j] = euclid_dist(X[i,:], X[nbrs[i,j],:])
+            sort_indices = np.argsort(dij)
+            nbrs[i,:] = nbrs[i,sort_indices]
+            # for j in range(n_extra):
+            #     distances[i,j] = tree.get_distance(i, nbrs[i,j])
+            distances[i,:] = dij[sort_indices]
     if verbose:
         print("found nearest neighbors")
     sig = np.maximum(np.mean(distances[:, 10:20], axis=1), 1e-20) # scale parameter
@@ -250,15 +265,23 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, verbose = True):
         weights = np.hstack((weights, rand_weights))
     weights /= np.max(weights)
     weights += 0.0001
+    if weight_adj:
+        weights = np.log(1 + 50 * weights)
+        weights /= np.max(weights)
     return (triplets, weights)
 
 
-@numba.njit('void(f8[:,:],f8[:,:],f8)', parallel=True, nogil=True)
-def update_embedding(Y, grad, lr):
+@numba.njit('void(f8[:,:],f8[:,:],f8[:,:],f8)', parallel=True, nogil=True)
+def update_embedding(Y, grad, vel, lr):
+    gamma = 0.9
+#    min_gain = 0.01
     n, dim = Y.shape
     for i in range(n):
         for d in range(dim):
-            Y[i,d] -= lr * grad[i,d]
+#            Y[i,d] -= lr * grad[i,d]
+#            gain[i,d] = (gain[i,d]+0.5) if (np.sign(vel[i,d]) != np.sign(grad[i,d])) else np.maximum(gain[i,d]*0.8, min_gain)
+            vel[i,d] = gamma * vel[i,d] - lr * grad[i,d] # - 1e-5 * Y[i,d]
+            Y[i,d] += vel[i,d]
             
 @numba.njit('f8[:,:](f8[:,:],i8,i8,i8[:,:],f8[:])', parallel=True, nogil=True)
 def trimap_grad(Y, n_inlier, n_outlier, triplets, weights):
@@ -303,30 +326,40 @@ def trimap_grad(Y, n_inlier, n_outlier, triplets, weights):
     return np.vstack((grad, last))
     
     
-def trimap(X, n_dims, n_inliers, n_outliers, n_random, lr, n_iters, Yinit, verbose):
+def trimap(X, triplets, weights, n_dims, n_inliers, n_outliers, n_random, lr, n_iters, Yinit, weight_adj, verbose, return_seq):
     if verbose:
         t = time.time()
     n, dim = X.shape
     if verbose:
         print("running TriMap on %d points with dimension %d" % (n, dim))
-        print("pre-processing")
-    X -= np.min(X)
-    X /= np.max(X)
-    X -= np.mean(X,axis=0)
-    triplets, weights = generate_triplets(X, n_inliers, n_outliers, n_random, verbose)
-    if verbose:
-        print("sampled triplets")
+    if triplets[0] is None:
+        if verbose:
+            print("pre-processing")
+        X -= np.min(X)
+        X /= np.max(X)
+        X -= np.mean(X,axis=0)
+        triplets, weights = generate_triplets(X, n_inliers, n_outliers, n_random, weight_adj, verbose)
+        if verbose:
+            print("sampled triplets")
+    else:
+        if verbose:
+            print("using stored triplets")
         
     if Yinit is None:
         Y = np.random.normal(size=[n, n_dims]) * 0.0001
     else:
-        Y = Yinit      
+        Y = Yinit
+    if return_seq:
+        Y_all = np.zeros((n, n_dims, int(n_iters/10 + 1)))
+        Y_all[:,:,0] = Yinit
     C = np.inf
     tol = 1e-7
     n_triplets = float(triplets.shape[0])
+    lr = lr * n / n_triplets
     
     if verbose:
         print("running TriMap")
+    vel = np.zeros_like(Y, dtype=np.float64)
     for itr in range(n_iters):
         old_C = C
         grad = trimap_grad(Y, n_inliers, n_outliers, triplets, weights)
@@ -334,20 +367,25 @@ def trimap(X, n_dims, n_inliers, n_outliers, n_random, lr, n_iters, Yinit, verbo
         n_viol = grad[-1,1]
             
         # update Y
-        update_embedding(Y, grad, lr * n/n_triplets)
+        update_embedding(Y, grad, vel, lr)
         
         # update the learning rate
         if old_C > C + tol:
-            lr = lr * 1.05
+            lr = lr * 1.01
         else:
-            lr = lr * 0.5
-        
+            lr = lr * 0.9
+        if return_seq and (itr+1) % 10 == 0:
+            Y_all[:,:,int((itr+1)/10)] = Y
         if verbose:
             if (itr+1) % 100 == 0:
                 print('Iteration: %4d, Loss: %3.3f, Violated triplets: %0.4f' % (itr+1, C, n_viol/n_triplets*100.0))
     if verbose:
-        print("Elapsed time %s" % (time.time() - t))
-    return Y
+        elapsed = str(datetime.timedelta(seconds= time.time() - t))
+        print("Elapsed time: %s" % (elapsed))
+    if return_seq:
+        return (Y_all, triplets, weights)
+    else:
+        return (Y, triplets, weights)
 
 class TRIMAP(BaseEstimator):
     """
@@ -361,27 +399,35 @@ class TRIMAP(BaseEstimator):
 
     n_dims: Number of dimensions of the embedding (default = 2)
 
-    n_inliers: Number of inlier points for triplet constraints (default = 50)
+    n_inliers: Number of inlier points for triplet constraints (default = 40)
 
-    n_outliers: Number of outlier points for triplet constraints (default = 5)
+    n_outliers: Number of outlier points for triplet constraints (default = 10)
 
-    n_random: Number of random triplet constraints per point (default = 10)
+    n_random: Number of random triplet constraints per point (default = 5)
 
-    lr: Learning rate (default = 10000.0)
+    lr: Learning rate (default = 1000.0)
 
-    n_iters: Number of iterations (default = 1500)
+    n_iters: Number of iterations (default = 1000)
 
     verbose: Print the progress report (default = True)
+
+    weights_adj: Adjusting the weights using a non-linear transformation (default = False)
+
+    return_seq: Return the sequence of maps recorded every 10 iterations (defalut = False)
     """
 
     def __init__(self,
                  n_dims=2,
-                 n_inliers=50,
-                 n_outliers=5,
-                 n_random=10,
-                 lr=10000.0,
-                 n_iters = 1500,
-                 verbose=True
+                 n_inliers=40,
+                 n_outliers=10,
+                 n_random=5,
+                 lr=1000.0,
+                 n_iters = 1000,
+                 triplets=None,
+                 weights=None,
+                 verbose=True,
+                 weight_adj=False,
+                 return_seq=False
                  ):
         self.n_dims = n_dims
         self.n_inliers = n_inliers
@@ -389,7 +435,11 @@ class TRIMAP(BaseEstimator):
         self.n_random = n_random
         self.lr = lr
         self.n_iters = n_iters
+        self.triplets = triplets,
+        self.weights = weights
+        self.weight_adj = weight_adj
         self.verbose = verbose
+        self.return_seq = return_seq
 
         if self.n_dims < 2:
             raise ValueError('The number of output dimensions must be at least 2.')
@@ -404,8 +454,8 @@ class TRIMAP(BaseEstimator):
 
         if self.verbose:
             print("TRIMAP(n_inliers={}, n_outliers={}, n_random={}, "
-                  "lr={}, n_iters={}, verbose={})".format(
-                  n_inliers, n_outliers, n_random, lr, n_iters, verbose))
+                  "lr={}, n_iters={}, weight_adj={}, verbose={}, return_seq={})".format(
+                  n_inliers, n_outliers, n_random, lr, n_iters, weight_adj, verbose, return_seq))
 
     def fit(self, X, init = None):
         """
@@ -420,8 +470,9 @@ class TRIMAP(BaseEstimator):
         """
         X = X.astype(np.float64)
         
-        self.embedding_ = trimap(X, self.n_dims, self.n_inliers, self.n_outliers, self.n_random, 
-                                 self.lr, self.n_iters, init, self.verbose)
+        self.embedding_, self.triplets, self.weights = trimap(X, self.triplets,
+            self.weights, self.n_dims, self.n_inliers, self.n_outliers, self.n_random,
+            self.lr, self.n_iters, init, self.weight_adj, self.verbose, self.return_seq)
         return self
 
     def fit_transform(self, X, init = None):
@@ -437,3 +488,33 @@ class TRIMAP(BaseEstimator):
         """
         self.fit(X, init)
         return self.embedding_
+    
+    def sample_triplets(self, X):
+        """
+        Samples and stores triplets
+
+        Input
+        ------
+
+        X: Instance matrix
+        """
+        if self.verbose:
+            print("pre-processing")
+        X = X.astype(np.float64)
+        X -= np.min(X)
+        X /= np.max(X)
+        X -= np.mean(X,axis=0)
+        self.triplets, self.weights = generate_triplets(X, self.n_inliers, self.n_outliers, self.n_random, self.weight_adj, self.verbose)
+        if self.verbose:
+            print("sampled triplets")
+        
+        return self
+    
+    def del_triplets(self):
+        """
+        Deletes the stored triplets
+        """
+        self.triplets = None
+        self.weights = None
+        
+        return self
