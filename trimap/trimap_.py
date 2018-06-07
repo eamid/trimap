@@ -219,7 +219,8 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, weight_adj = False, verb
     if dim > 50:
         X = TruncatedSVD(n_components=50, random_state=0).fit_transform(X)
         dim = 50
-    if n <= 20000: # do exact knn search
+    exact = n <= 20000
+    if exact: # do exact knn search
         knn_tree = knn(n_neighbors= n_extra, algorithm='auto').fit(X)
         distances, nbrs = knn_tree.kneighbors(X)
         distances = np.empty((n,n_extra), dtype=np.float64)
