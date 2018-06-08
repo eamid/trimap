@@ -216,9 +216,9 @@ def find_weights(triplets, P, nbrs, distances, sig):
 def generate_triplets(X, n_inlier, n_outlier, n_random, weight_adj = False, verbose = True):
     n, dim = X.shape
     n_extra = max(n_inlier, 150)
-    if dim > 50:
-        X = TruncatedSVD(n_components=50, random_state=0).fit_transform(X)
-        dim = 50
+    if dim > 100:
+        X = TruncatedSVD(n_components=100, random_state=0).fit_transform(X)
+        dim = 100
     exact = n <= 20000
     if exact: # do exact knn search
         knn_tree = knn(n_neighbors= n_extra, algorithm='auto').fit(X)
@@ -231,7 +231,7 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, weight_adj = False, verb
         tree = AnnoyIndex(dim)
         for i in range(n):
             tree.add_item(i, X[i,:])
-        tree.build(10)
+        tree.build(50)
         nbrs = np.empty((n,n_extra), dtype=np.int64)
         distances = np.empty((n,n_extra), dtype=np.float64)
         dij = np.empty(n_extra, dtype=np.float64)
