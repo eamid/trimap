@@ -39,9 +39,9 @@ TriMap with the default parameters, simply do:
 Unlike other dimensionality reduction method, TriMap only has a few parameters
 to tune:
 
- -  ``n_inliers``: Number of nearest neighbors for forming the nearest neighbor triplets (default = 40).
+ -  ``n_inliers``: Number of nearest neighbors for forming the nearest neighbor triplets (default = 50).
 
- -  ``n_outliers``: Number of outliers for forming the nearest neighbor triplets (default = 10).
+ -  ``n_outliers``: Number of outliers for forming the nearest neighbor triplets (default = 5).
 
  -  ``n_random``: Number of random triplets per point (default = 5).
 
