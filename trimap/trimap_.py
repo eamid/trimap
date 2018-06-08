@@ -419,8 +419,8 @@ class TRIMAP(BaseEstimator):
 
     def __init__(self,
                  n_dims=2,
-                 n_inliers=40,
-                 n_outliers=10,
+                 n_inliers=50,
+                 n_outliers=5,
                  n_random=5,
                  lr=1000.0,
                  n_iters = 1000,
