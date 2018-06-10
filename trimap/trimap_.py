@@ -400,9 +400,9 @@ class TRIMAP(BaseEstimator):
 
     n_dims: Number of dimensions of the embedding (default = 2)
 
-    n_inliers: Number of inlier points for triplet constraints (default = 40)
+    n_inliers: Number of inlier points for triplet constraints (default = 50)
 
-    n_outliers: Number of outlier points for triplet constraints (default = 10)
+    n_outliers: Number of outlier points for triplet constraints (default = 5)
 
     n_random: Number of random triplet constraints per point (default = 5)
 
