@@ -109,7 +109,7 @@ If you have all the requirements installed, you can use pip:
 
     sudo pip install trimap
     
-Please regularly check for updates and make sure you are using the most recent version. If you have TriMap installed and would like to upadete to the newer version, you can use the command:
+Please regularly check for updates and make sure you are using the most recent version. If you have TriMap installed and would like to upgrade to the newer version, you can use the command:
 
 .. code:: bash
 
