@@ -18,7 +18,7 @@ other dimensionality reduction methods such t-SNE and LargeVis. The global
 structure includes relative distances of the clusters, multiple scales in 
 the data, and the existence of possible outliers. The following links provide some examples on different datasets:
 
-`_MNIST digits subset <https://github.com/eamid/examples/blob/master/mnist_digits.ipynb>__`
+`MNIST digits subset <https://github.com/eamid/examples/blob/master/mnist_digits.ipynb>`
 
 The following implementation utilizes the default temperature parameters (*t = t' = 2*).
 
