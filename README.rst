@@ -19,6 +19,7 @@ structure includes relative distances of the clusters, multiple scales in
 the data, and the existence of possible outliers. The following links provide some examples on different datasets:
 
 `MNIST digits subset <https://github.com/eamid/examples/blob/master/mnist_digits.ipynb>`_
+
 `Tabula Muris Tissue <https://github.com/eamid/examples/blob/master/tabula_muris.ipynb>`_ 
 
 The following implementation utilizes the default temperature parameters (*t = t' = 2*).
