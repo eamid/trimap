@@ -22,6 +22,8 @@ the data, and the existence of possible outliers. The following links provide so
 
 `Tabula Muris Tissue <https://github.com/eamid/examples/blob/master/tabula_muris.ipynb>`_ 
 
+`Online News Popularity <https://github.com/eamid/examples/blob/master/online_news_popularity.ipynb>`_ 
+
 The following implementation utilizes the default temperature parameters (*t = t' = 2*).
 
 -----------------
