@@ -24,6 +24,8 @@ the data, and the existence of possible outliers. The following links provide so
 
 *   `Online News Popularity <https://github.com/eamid/examples/blob/master/online_news_popularity.ipynb>`_ 
 
+*   NEW! `Paul15 <https://github.com/eamid/examples/blob/master/paul15-org.ipynb>`_ 
+
 The following implementation is in Python and utilizes the default temperature parameters (*t = t' = 2*). More implementations are available in:
 
 *   `PyTorch <https://github.com/KellerJordan/TriMap-PyTorch>`_ (by Keller Jordan)
