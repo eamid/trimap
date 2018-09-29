@@ -29,6 +29,9 @@ import sys
 if sys.version_info < (3,):
     range = xrange
 
+bold = "\033[1m"
+reset = "\033[0;0m"
+
 @numba.njit()
 def euclid_dist(x1, x2):
     """
@@ -489,8 +492,8 @@ class TRIMAP(BaseEstimator):
             print("TRIMAP(n_inliers={}, n_outliers={}, n_random={}, "
                   "lr={}, n_iters={}, weight_adj={}, fast_trimap = {}, opt_method = {}, verbose={}, return_seq={})".format(
                   n_inliers, n_outliers, n_random, lr, n_iters, weight_adj, fast_trimap, opt_method, verbose, return_seq))
-            if ~self.fast_trimap:
-                print("Running exact nearest neighbors search. TriMap can be slow!")
+            if not self.fast_trimap:
+                print(bold + "running exact nearest neighbors search. TriMap can be slow!" + reset)
 
     def fit(self, X, init = None):
         """
