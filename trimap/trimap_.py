@@ -493,7 +493,7 @@ class TRIMAP(BaseEstimator):
                   "lr={}, n_iters={}, weight_adj={}, fast_trimap = {}, opt_method = {}, verbose={}, return_seq={})".format(
                   n_inliers, n_outliers, n_random, lr, n_iters, weight_adj, fast_trimap, opt_method, verbose, return_seq))
             if not self.fast_trimap:
-                print(bold + "running exact nearest neighbors search. TriMap can be slow!" + reset)
+                print(bold + "running exact nearest neighbors search. TriMap may be slow!" + reset)
 
     def fit(self, X, init = None):
         """
