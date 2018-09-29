@@ -16,9 +16,20 @@ Amid, E, Warmuth, M. K, *A more globally accurate dimensionality reduction metho
 we show that TriMap provides a much better global view of the data than the
 other dimensionality reduction methods such t-SNE and LargeVis. The global 
 structure includes relative distances of the clusters, multiple scales in 
-the data, and the existence of possible outliers.
+the data, and the existence of possible outliers. The following links provide some examples on different datasets:
 
-The following implementation utilizes the default temperature parameters (*t = t' = 2*).
+*   `MNIST digits subset <https://github.com/eamid/examples/blob/master/mnist_digits.ipynb>`_
+
+*   `Tabula Muris Tissue <https://github.com/eamid/examples/blob/master/tabula_muris.ipynb>`_ 
+
+*   `Online News Popularity <https://github.com/eamid/examples/blob/master/online_news_popularity.ipynb>`_ 
+
+The following implementation is in Python and utilizes the default temperature parameters (*t = t' = 2*). 
+
+More implementations by external collaborators are available in:
+
+*   `PyTorch <https://github.com/KellerJordan/TriMap-PyTorch>`_ (by Keller Jordan)
+*   TensorFlow (coming soon! by Llion Jones)
 
 -----------------
 How to use TriMap
@@ -36,6 +47,10 @@ TriMap with the default parameters, simply do:
 
     embedding = trimap.TRIMAP().fit_transform(digits.data)
 
+-----------------
+Parameters
+-----------------
+
 Unlike other dimensionality reduction method, TriMap only has a few parameters
 to tune:
 
@@ -47,7 +62,19 @@ to tune:
 
  -  ``lr``: Learning rate (default = 1000.0).
 
- -  ``n_iters``: Number of iterations (default = 1000).
+ -  ``n_iters``: Number of iterations (default = 1500).
+ 
+The other parameters include:
+
+ -  ``weight_adj``: Adjust weights for extreme outliers using a log-transformation (default = False).
+
+ -  ``fast_trimap``: Use only ANNOY for nearest-neighbor search (default = True).
+
+ -  ``opt_method``: Optimization method {'sd' (steepest descent, default), 'momentum' (GD with momentum)}.
+
+ -  ``verbose``: Print the progress report (default = True).
+
+ -  ``return_seq``: Store the intermediate results and return the results in a tensor (default = False).
 
 An example of adjusting these parameters:
 
@@ -62,6 +89,7 @@ An example of adjusting these parameters:
                               n_outliers=20,
                               n_random=5).fit_transform(digits.data)
 
+The nearest-neighbor calculation is performed by default using  `ANNOY <https://github.com/spotify/annoy>`_. For more accurate results, the first 5 nearest-neighbors of each point can be calculated using ``sklearn.neighbors.NearestNeighbors`` and the results can be combined with those calculated using ANNOY. However, this may significantly increase the runtime. The ``fast_trimap (default = True)`` argument controls this property. For more accurate results, set ``fast_trimap = False``.
 
 --------
 Examples
@@ -107,7 +135,13 @@ If you have all the requirements installed, you can use pip:
 
 .. code:: bash
 
-    pip install trimap
+    sudo pip install trimap
+    
+Please regularly check for updates and make sure you are using the most recent version. If you have TriMap installed and would like to upgrade to the newer version, you can use the command:
+
+.. code:: bash
+
+    sudo pip install --upgrade --force-reinstall trimap
 
 An alternative is to install the dependencies manually using anaconda and using pip 
 to install TriMap:
