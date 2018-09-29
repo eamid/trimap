@@ -62,7 +62,7 @@ to tune:
 
  -  ``lr``: Learning rate (default = 1000.0).
 
- -  ``n_iters``: Number of iterations (default = 1500).
+ -  ``n_iters``: Number of iterations (default = 1200).
  
 The other parameters include:
 
@@ -107,6 +107,11 @@ Fashion MNIST (*n = 70,000, d = 784*)
 
 .. image:: results/fmnist_trimap.png
     :alt: TriMap embedding of the Fashion MNIST dataset
+    
+Tabula Muris (*n = 53,760, d = 23,433*)
+
+.. image:: results/tabula_muris_trimap.png
+    :alt: TriMap embedding of the Tabula Muris Mouse Tissues dataset
 
 TV News (*n = 129,685, d = 50*)
 
