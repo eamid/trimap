@@ -24,9 +24,9 @@ the data, and the existence of possible outliers. The following links provide so
 
 *   `Online News Popularity <https://github.com/eamid/examples/blob/master/online_news_popularity.ipynb>`_ 
 
-*   NEW! `Paul15 <https://github.com/eamid/examples/blob/master/paul15-org.ipynb>`_ 
+The following implementation is in Python and utilizes the default temperature parameters (*t = t' = 2*). 
 
-The following implementation is in Python and utilizes the default temperature parameters (*t = t' = 2*). More implementations are available in:
+More implementations by external collaborators are available in:
 
 *   `PyTorch <https://github.com/KellerJordan/TriMap-PyTorch>`_ (by Keller Jordan)
 *   TensorFlow (coming soon! by Llion Jones)
@@ -47,6 +47,10 @@ TriMap with the default parameters, simply do:
 
     embedding = trimap.TRIMAP().fit_transform(digits.data)
 
+-----------------
+Parameters
+-----------------
+
 Unlike other dimensionality reduction method, TriMap only has a few parameters
 to tune:
 
@@ -58,7 +62,19 @@ to tune:
 
  -  ``lr``: Learning rate (default = 1000.0).
 
- -  ``n_iters``: Number of iterations (default = 1000).
+ -  ``n_iters``: Number of iterations (default = 1500).
+ 
+The other parameters include:
+
+ -  ``weight_adj``: Adjust weights for extreme outliers using a log-transformation (default = False).
+
+ -  ``fast_trimap``: Use only ANNOY for nearest-neighbor search (default = True).
+
+ -  ``opt_method``: Optimization method {'sd' (steepest descent, default), 'momentum' (GD with momentum)}.
+
+ -  ``verbose``: Print the progress report (default = True).
+
+ -  ``return_seq``: Store intermediate result and return the results tensor (default = False).
 
 An example of adjusting these parameters:
 
@@ -73,6 +89,7 @@ An example of adjusting these parameters:
                               n_outliers=20,
                               n_random=5).fit_transform(digits.data)
 
+The nearest-neighbor calculation is performed by default using  `ANNOY <https://github.com/spotify/annoy>`_. For more accurate results, the first 5 nearest-neighbors of each point can be calculated using ``sklearn.neighbors.NearestNeighbors`` and the results can be combined with those calculated using ANNOY. However, this may significantly increase the runtime. The ``fast_trimap (default = True)`` argument controls this property. For more accurate results, set ``fast_trimap = False``.
 
 --------
 Examples
