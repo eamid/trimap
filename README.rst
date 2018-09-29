@@ -74,7 +74,7 @@ The other parameters include:
 
  -  ``verbose``: Print the progress report (default = True).
 
- -  ``return_seq``: Store intermediate result and return the results tensor (default = False).
+ -  ``return_seq``: Store the intermediate results and return the results in a tensor (default = False).
 
 An example of adjusting these parameters:
 
