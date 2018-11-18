@@ -221,49 +221,51 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, fast_trimap = True, weig
     if dim > 100:
         X = TruncatedSVD(n_components=100, random_state=0).fit_transform(X)
         dim = 100
-    if fast_trimap:
-        n_extra = max(n_inlier, 200)
-        exact = n <= 20000
-        if exact: # do exact knn search
-            knn_tree = knn(n_neighbors= n_extra, algorithm='auto').fit(X)
-            distances, nbrs = knn_tree.kneighbors(X)
-        else: # use annoy
-            tree = AnnoyIndex(dim)
-            for i in range(n):
-                tree.add_item(i, X[i,:])
-            tree.build(50)
-            nbrs = np.empty((n,n_extra), dtype=np.int64)
-            distances = np.empty((n,n_extra), dtype=np.float64)
-            dij = np.empty(n_extra, dtype=np.float64)
-            for i in range(n):
-                nbrs[i,:] = tree.get_nns_by_item(i, n_extra)
-                for j in range(n_extra):
-                    dij[j] = euclid_dist(X[i,:], X[nbrs[i,j],:])
-                sort_indices = np.argsort(dij)
-                nbrs[i,:] = nbrs[i,sort_indices]
-                # for j in range(n_extra):
-                #     distances[i,j] = tree.get_distance(i, nbrs[i,j])
-                distances[i,:] = dij[sort_indices]
-    else:
-        exact = True
-        n_extra = max(n_inlier, 105)
-        knn_tree = knn(n_neighbors= 5, algorithm='auto').fit(X)
-        _, nbrs_bf = knn_tree.kneighbors(X)
-        nbrs = np.empty((n,n_extra), dtype=np.int64)
-        nbrs[:,:5] = nbrs_bf
+    exact = n <= 10000
+    n_extra = min(max(n_inlier, 200),n)
+    if exact: # do exact knn search
+        knn_tree = knn(n_neighbors= n_extra, algorithm='auto').fit(X)
+        distances, nbrs = knn_tree.kneighbors(X)
+    elif fast_trimap: # use annoy
         tree = AnnoyIndex(dim)
         for i in range(n):
             tree.add_item(i, X[i,:])
         tree.build(50)
+        nbrs = np.empty((n,n_extra), dtype=np.int64)
         distances = np.empty((n,n_extra), dtype=np.float64)
         dij = np.empty(n_extra, dtype=np.float64)
         for i in range(n):
-            nbrs[i,5:] = tree.get_nns_by_item(i, n_extra-5)
+            nbrs[i,:] = tree.get_nns_by_item(i, n_extra)
             for j in range(n_extra):
                 dij[j] = euclid_dist(X[i,:], X[nbrs[i,j],:])
             sort_indices = np.argsort(dij)
             nbrs[i,:] = nbrs[i,sort_indices]
+            # for j in range(n_extra):
+            #     distances[i,j] = tree.get_distance(i, nbrs[i,j])
             distances[i,:] = dij[sort_indices]
+    else:
+        n_bf = 10
+        n_extra += n_bf
+        knn_tree = knn(n_neighbors= n_bf, algorithm='auto').fit(X)
+        _, nbrs_bf = knn_tree.kneighbors(X)
+        nbrs = np.empty((n,n_extra), dtype=np.int64)
+        nbrs[:,:n_bf] = nbrs_bf
+        tree = AnnoyIndex(dim)
+        for i in range(n):
+            tree.add_item(i, X[i,:])
+        tree.build(60)
+        distances = np.empty((n,n_extra), dtype=np.float64)
+        dij = np.empty(n_extra, dtype=np.float64)
+        for i in range(n):
+            nbrs[i,n_bf:] = tree.get_nns_by_item(i, n_extra-n_bf)
+            unique_nn = np.unique(nbrs[i,:])
+            n_unique = len(unique_nn)
+            nbrs[i,:n_unique] = unique_nn
+            for j in range(n_unique):
+                dij[j] = euclid_dist(X[i,:], X[nbrs[i,j],:])
+            sort_indices = np.argsort(dij[:n_unique])
+            nbrs[i,:n_unique] = nbrs[i,sort_indices]
+            distances[i,:n_unique] = dij[sort_indices]
     if verbose:
         print("found nearest neighbors")
     sig = np.maximum(np.mean(distances[:, 10:20], axis=1), 1e-20) # scale parameter
@@ -271,7 +273,7 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, fast_trimap = True, weig
     triplets = sample_knn_triplets(P, nbrs, n_inlier, n_outlier)
     n_triplets = triplets.shape[0]
     outlier_dist = np.empty(n_triplets, dtype=np.float64)
-    if exact:
+    if exact or  not fast_trimap:
         for t in range(n_triplets):
             outlier_dist[t] = np.sqrt(np.sum((X[triplets[t,0],:] - X[triplets[t,2],:])**2))
     else:
