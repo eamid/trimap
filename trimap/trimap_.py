@@ -231,18 +231,29 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, fast_trimap = True, weig
         for i in range(n):
             tree.add_item(i, X[i,:])
         tree.build(50)
-        nbrs = np.empty((n,n_extra), dtype=np.int64)
-        distances = np.empty((n,n_extra), dtype=np.float64)
-        dij = np.empty(n_extra, dtype=np.float64)
+
+        sqn_extra = np.int_(np.ceil(np.sqrt(n_extra)))
+        sqnbrs = np.empty((n, sqn_extra), dtype=np.int64)
         for i in range(n):
-            nbrs[i,:] = tree.get_nns_by_item(i, n_extra)
-            for j in range(n_extra):
-                dij[j] = euclid_dist(X[i,:], X[nbrs[i,j],:])
-            sort_indices = np.argsort(dij)
-            nbrs[i,:] = nbrs[i,sort_indices]
-            # for j in range(n_extra):
-            #     distances[i,j] = tree.get_distance(i, nbrs[i,j])
-            distances[i,:] = dij[sort_indices]
+            sqnbrs[i, :] = tree.get_nns_by_item(i, sqn_extra, include_distances=False)
+
+        nbrs = np.empty((n, sqn_extra * (sqn_extra + 1)), dtype=np.int64)
+        distances = np.empty((n, sqn_extra * (sqn_extra + 1)), dtype=np.float64)
+        dij = np.empty(sqn_extra * (sqn_extra + 1), dtype=np.float64)
+
+        for i in range(n):
+            nbrs[i, 0:sqn_extra] = sqnbrs[i, :]
+            for k in range(sqn_extra):
+                nbrs[i, (k + 1) * sqn_extra:(k + 2) * sqn_extra] = sqnbrs[nbrs[i, k], :]
+            unique_nn = np.unique(nbrs[i, :])
+            n_unique = len(unique_nn)
+            nbrs[i, :n_unique] = unique_nn
+            for j in range(n_unique):
+                dij[j] = euclid_dist(X[i, :], X[nbrs[i, j], :])
+            sort_indices = np.argsort(dij[:n_unique])
+            nbrs[i, :n_unique] = nbrs[i, sort_indices]
+            distances[i, :n_unique] = dij[sort_indices]
+
     else:
         n_bf = 10
         n_extra += n_bf
