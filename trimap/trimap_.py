@@ -249,7 +249,7 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, fast_trimap = True, weig
             n_unique = len(unique_nn)
             nbrs[i, :n_unique] = unique_nn
             for j in range(n_unique):
-                dij[j] = euclid_dist(X[i, :], X[nbrs[i, j], :])
+                dij[j] = tree.get_distance(i, nbrs[i, j])
             sort_indices = np.argsort(dij[:n_unique])
             nbrs[i, :n_unique] = nbrs[i, sort_indices]
             distances[i, :n_unique] = dij[sort_indices]
@@ -273,7 +273,7 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, fast_trimap = True, weig
             n_unique = len(unique_nn)
             nbrs[i,:n_unique] = unique_nn
             for j in range(n_unique):
-                dij[j] = euclid_dist(X[i,:], X[nbrs[i,j],:])
+                dij[j] = tree.get_distance(i, nbrs[i, j])
             sort_indices = np.argsort(dij[:n_unique])
             nbrs[i,:n_unique] = nbrs[i,sort_indices]
             distances[i,:n_unique] = dij[sort_indices]
