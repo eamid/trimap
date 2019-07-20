@@ -228,7 +228,7 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, fast_trimap = True, weig
         knn_tree = knn(n_neighbors= n_extra, algorithm='auto').fit(X)
         distances, nbrs = knn_tree.kneighbors(X)
     elif fast_trimap: # use annoy
-        tree = AnnoyIndex(dim, metric='euclidean')
+        tree = AnnoyIndex(dim, metric='angular')
         for i in range(n):
             tree.add_item(i, X[i,:])
         tree.build(10)
@@ -251,10 +251,10 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, fast_trimap = True, weig
         _, nbrs_bf = knn_tree.kneighbors(X)
         nbrs = np.empty((n,n_extra), dtype=np.int64)
         nbrs[:,:n_bf] = nbrs_bf
-        tree = AnnoyIndex(dim)
+        tree = AnnoyIndex(dim, metric='angular')
         for i in range(n):
             tree.add_item(i, X[i,:])
-        tree.build(100,  metric='euclidean')
+        tree.build(100)
         distances = np.empty((n,n_extra), dtype=np.float64)
         dij = np.empty(n_extra, dtype=np.float64)
         for i in range(n):
@@ -292,7 +292,7 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, fast_trimap = True, weig
     weights += 0.0001
     if weight_adj:
         if not isinstance(weight_adj, (int, float)):
-            weight_adj = 1000.0
+            weight_adj = 500.0
         weights = np.log(1 + weight_adj * weights)
         weights /= np.max(weights)
     return (triplets, weights)
@@ -394,7 +394,7 @@ def trimap(X, triplets, weights, n_dims, n_inliers, n_outliers, n_random, lr, n_
             print("using stored triplets")
         
     if Yinit is None or Yinit is 'pca':
-        Y = 0.1 * PCA(n_components = n_dims).fit_transform(X)
+        Y = PCA(n_components = n_dims).fit_transform(X)
     elif Yinit is 'random':
         Y = np.random.normal(size=[n, n_dims]) * 0.0001
     else:

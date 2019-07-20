@@ -6,7 +6,7 @@ def readme():
 
 configuration = {
     'name' : 'trimap',
-    'version': '1.0.1',
+    'version': '1.0.3',
     'description' : 'TriMap: Dimensionality Reduction Using Triplets',
     'long_description' : readme(),
     'classifiers' : [
