@@ -25,6 +25,7 @@ import numpy as np
 import time
 import datetime
 import sys
+from sklearn.decomposition import PCA
 
 if sys.version_info < (3,):
     range = xrange
@@ -216,21 +217,21 @@ def find_weights(triplets, P, nbrs, distances, sig):
         weights[t] = p_sim/p_out
     return weights
 
-def generate_triplets(X, n_inlier, n_outlier, n_random, fast_trimap = True, weight_adj = False, verbose = True):
+def generate_triplets(X, n_inlier, n_outlier, n_random, fast_trimap = True, weight_adj = True, verbose = True):
     n, dim = X.shape
     if dim > 100:
         X = TruncatedSVD(n_components=100, random_state=0).fit_transform(X)
         dim = 100
     exact = n <= 10000
-    n_extra = min(max(n_inlier, 200),n)
+    n_extra = min(max(n_inlier, 150),n)
     if exact: # do exact knn search
         knn_tree = knn(n_neighbors= n_extra, algorithm='auto').fit(X)
         distances, nbrs = knn_tree.kneighbors(X)
     elif fast_trimap: # use annoy
-        tree = AnnoyIndex(dim, metric='euclidean')
+        tree = AnnoyIndex(dim)
         for i in range(n):
             tree.add_item(i, X[i,:])
-        tree.build(50)
+        tree.build(10)
         nbrs = np.empty((n,n_extra), dtype=np.int64)
         distances = np.empty((n,n_extra), dtype=np.float64)
         dij = np.empty(n_extra, dtype=np.float64)
@@ -250,10 +251,10 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, fast_trimap = True, weig
         _, nbrs_bf = knn_tree.kneighbors(X)
         nbrs = np.empty((n,n_extra), dtype=np.int64)
         nbrs[:,:n_bf] = nbrs_bf
-        tree = AnnoyIndex(dim, metric='euclidean')
+        tree = AnnoyIndex(dim)
         for i in range(n):
             tree.add_item(i, X[i,:])
-        tree.build(60)
+        tree.build(100)
         distances = np.empty((n,n_extra), dtype=np.float64)
         dij = np.empty(n_extra, dtype=np.float64)
         for i in range(n):
@@ -278,7 +279,8 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, fast_trimap = True, weig
             outlier_dist[t] = np.sqrt(np.sum((X[triplets[t,0],:] - X[triplets[t,2],:])**2))
     else:
         for t in range(n_triplets):
-            outlier_dist[t] = tree.get_distance(triplets[t,0], triplets[t,2])
+            outlier_dist[t] = euclid_dist(X[triplets[t,0],:], X[triplets[t,2],:])
+            # outlier_dist[t] = tree.get_distance(triplets[t,0], triplets[t,2])
     weights = find_weights(triplets, P, nbrs, outlier_dist, sig)
     if n_random > 0:
         rand_triplets = sample_random_triplets(X, n_random, sig)
@@ -289,27 +291,44 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, fast_trimap = True, weig
     weights /= np.max(weights)
     weights += 0.0001
     if weight_adj:
-        weights = np.log(1 + 50 * weights)
+        if not isinstance(weight_adj, (int, float)):
+            weight_adj = 1000.0
+        weights = np.log(1 + weight_adj * weights)
         weights /= np.max(weights)
     return (triplets, weights)
 
 
-@numba.njit('void(f8[:,:],f8[:,:],f8[:,:],f8,i8)', parallel=True, nogil=True)
-def update_embedding(Y, grad, vel, lr, opt_method):
-    gamma = 0.5 # moment parameter
-#    min_gain = 0.01
+@numba.njit('void(f8[:,:],f8[:,:],f8[:,:],f8,i8,i8)', parallel=True, nogil=True)
+def update_embedding(Y, grad, vel, lr, iter_num, opt_method):
     n, dim = Y.shape
     if opt_method == 0: # sd
         for i in range(n):
             for d in range(dim):
                 Y[i,d] -= lr * grad[i,d]
     elif opt_method == 1: # momentum
+        if iter_num > 250:
+            gamma = 0.5
+        else:
+            gamma = 0.3
         for i in range(n):
             for d in range(dim):
-    #            Y[i,d] -= lr * grad[i,d]
-    #            gain[i,d] = (gain[i,d]+0.5) if (np.sign(vel[i,d]) != np.sign(grad[i,d])) else np.maximum(gain[i,d]*0.8, min_gain)
                 vel[i,d] = gamma * vel[i,d] - lr * grad[i,d] # - 1e-5 * Y[i,d]
                 Y[i,d] += vel[i,d]
+
+@numba.njit('void(f8[:,:],f8[:,:],f8[:,:],f8[:,:],f8,i8)', parallel=True, nogil=True)
+def update_embedding_dbd(Y, grad, vel, gain, lr, iter_num):
+    n, dim = Y.shape
+    if  iter_num > 250:
+        gamma = 0.8 # moment parameter
+    else:
+        gamma = 0.5
+    min_gain = 0.01
+    for i in range(n):
+        for d in range(dim):
+            gain[i,d] = (gain[i,d]+0.2) if (np.sign(vel[i,d]) != np.sign(grad[i,d])) else np.maximum(gain[i,d]*0.8, min_gain)
+            vel[i,d] = gamma * vel[i,d] - lr * gain[i,d] * grad[i,d]
+            Y[i,d] += vel[i,d]
+
                 
 @numba.njit('f8[:,:](f8[:,:],i8,i8,i8[:,:],f8[:])', parallel=True, nogil=True)
 def trimap_grad(Y, n_inlier, n_outlier, triplets, weights):
@@ -374,7 +393,9 @@ def trimap(X, triplets, weights, n_dims, n_inliers, n_outliers, n_random, lr, n_
         if verbose:
             print("using stored triplets")
         
-    if Yinit is None:
+    if Yinit is None or Yinit is 'pca':
+        Y = 0.1 * PCA(n_components = n_dims).fit_transform(X)
+    elif Yinit is 'random':
         Y = np.random.normal(size=[n, n_dims]) * 0.0001
     else:
         Y = Yinit
@@ -385,25 +406,38 @@ def trimap(X, triplets, weights, n_dims, n_inliers, n_outliers, n_random, lr, n_
     tol = 1e-7
     n_triplets = float(triplets.shape[0])
     lr = lr * n / n_triplets
-    opt_method_index = {'sd':0, 'momentum':1}
-
+    opt_method_index = {'sd':0, 'momentum':1, 'dbd':2}
     if verbose:
-        print("running TriMap")
+        print("running TriMap with " + opt_method)
     vel = np.zeros_like(Y, dtype=np.float64)
+    if opt_method_index[opt_method] == 2:
+        gain = np.ones_like(Y, dtype=np.float64)
+
     for itr in range(n_iters):
         old_C = C
-        grad = trimap_grad(Y, n_inliers, n_outliers, triplets, weights)
+        if opt_method_index[opt_method] == 0:
+            grad = trimap_grad(Y, n_inliers, n_outliers, triplets, weights)
+        else:
+            if itr > 250:
+                gamma = 0.5
+            else:
+                gamma = 0.3
+            grad = trimap_grad(Y + gamma * vel, n_inliers, n_outliers, triplets, weights)
         C = grad[-1,0]
         n_viol = grad[-1,1]
             
         # update Y
-        update_embedding(Y, grad, vel, lr, opt_method_index[opt_method])
+        if opt_method_index[opt_method] < 2:
+            update_embedding(Y, grad, vel, lr, itr, opt_method_index[opt_method])
+        else:
+            update_embedding_dbd(Y, grad, vel, gain, lr, itr)
         
         # update the learning rate
-        if old_C > C + tol:
-            lr = lr * 1.01
-        else:
-            lr = lr * 0.9
+        if opt_method_index[opt_method] < 2:
+            if old_C > C + tol:
+                lr = lr * 1.01
+            else:
+                lr = lr * 0.9
         if return_seq and (itr+1) % 10 == 0:
             Y_all[:,:,int((itr+1)/10)] = Y
         if verbose:
@@ -429,7 +463,7 @@ class TRIMAP(BaseEstimator):
 
     n_dims: Number of dimensions of the embedding (default = 2)
 
-    n_inliers: Number of inlier points for triplet constraints (default = 50)
+    n_inliers: Number of inlier points for triplet constraints (default = 10)
 
     n_outliers: Number of outlier points for triplet constraints (default = 5)
 
@@ -437,32 +471,32 @@ class TRIMAP(BaseEstimator):
 
     lr: Learning rate (default = 1000.0)
 
-    n_iters: Number of iterations (default = 1200)
+    n_iters: Number of iterations (default = 400)
 
     fast_trimap: Use fast nearest neighbor calculation (default = True)
 
-    opt_method: Optimization method ('sd': steepest descent (default), 'momentum': GD with momentum)
+    opt_method: Optimization method ('sd': steepest descent,  'momentum': GD with momentum, 'dbd': GD with momentum delta-bar-delta (default))
 
     verbose: Print the progress report (default = True)
 
-    weights_adj: Adjusting the weights using a non-linear transformation (default = False)
+    weight_adj: Adjusting the weights using a non-linear transformation (default = True)
 
-    return_seq: Return the sequence of maps recorded every 10 iterations (defalut = False)
+    return_seq: Return the sequence of maps recorded every 10 iterations (default = False)
     """
 
     def __init__(self,
                  n_dims=2,
-                 n_inliers=50,
+                 n_inliers=10,
                  n_outliers=5,
                  n_random=5,
                  lr=1000.0,
-                 n_iters = 1200,
+                 n_iters=400,
                  triplets=None,
                  weights=None,
                  verbose=True,
-                 weight_adj=False,
+                 weight_adj=True,
                  fast_trimap=True,
-                 opt_method='sd',
+                 opt_method='dbd',
                  return_seq=False
                  ):
         self.n_dims = n_dims
@@ -558,3 +592,26 @@ class TRIMAP(BaseEstimator):
         self.weights = None
         
         return self
+
+    def global_score(self, X, Y):
+        """
+        Global score
+
+        Input
+        ------
+
+        X: Instance matrix
+        Y: Embedding
+        """
+        def global_loss_(X, Y):
+            X = X - np.mean(X, axis=0)
+            Y = Y - np.mean(Y, axis=0)
+            A = np.dot(np.dot(X.T, Y), np.linalg.inv(np.dot(Y.T, Y)))
+            return np.mean(np.power(X.T - np.dot(A, Y.T), 2))
+        n_dims = Y.shape[1]
+        Y_pca = PCA(n_components = n_dims).fit_transform(X)
+        gl_pca = global_loss_(X, Y_pca)
+        gl_emb = global_loss_(X, Y)
+        return np.exp(-(gl_emb-gl_pca)/gl_pca)
+        
+
