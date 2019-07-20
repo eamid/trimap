@@ -9,27 +9,12 @@ are of the form "point *i* is closer to point *j* than point *k*". The triplets 
 sampled from the high-dimensional reprsesentation of the points and a weighting 
 scheme is used to reflect the importance of each triplet. 
 
-In our `paper <https://arxiv.org/abs/1803.00854>`_ on ArXiv:
-
-Amid, E, Warmuth, M. K, *A more globally accurate dimensionality reduction method using triplets*, ArXiv e-prints 1803.00854, 2018
-
-we show that TriMap provides a much better global view of the data than the
-other dimensionality reduction methods such t-SNE and LargeVis. The global 
+TriMap provides a much better global view of the data than the
+other dimensionality reduction methods such t-SNE, LargeVis, and UMAP. The global 
 structure includes relative distances of the clusters, multiple scales in 
-the data, and the existence of possible outliers. The following links provide some examples on different datasets:
+the data, and the existence of possible outliers. 
 
-*   `MNIST digits subset <https://github.com/eamid/examples/blob/master/mnist_digits.ipynb>`_
-
-*   `Tabula Muris Tissue <https://github.com/eamid/examples/blob/master/tabula_muris.ipynb>`_ 
-
-*   `Online News Popularity <https://github.com/eamid/examples/blob/master/online_news_popularity.ipynb>`_ 
-
-The following implementation is in Python and utilizes the default temperature parameters (*t = t' = 2*). 
-
-More implementations by external collaborators are available in:
-
-*   `PyTorch <https://github.com/KellerJordan/TriMap-PyTorch>`_ (by Keller Jordan)
-*   TensorFlow (coming soon! by Llion Jones)
+The following implementation is in Python. 
 
 -----------------
 How to use TriMap
@@ -54,7 +39,7 @@ Parameters
 Unlike other dimensionality reduction method, TriMap only has a few parameters
 to tune:
 
- -  ``n_inliers``: Number of nearest neighbors for forming the nearest neighbor triplets (default = 50).
+ -  ``n_inliers``: Number of nearest neighbors for forming the nearest neighbor triplets (default = 10).
 
  -  ``n_outliers``: Number of outliers for forming the nearest neighbor triplets (default = 5).
 
@@ -62,15 +47,15 @@ to tune:
 
  -  ``lr``: Learning rate (default = 1000.0).
 
- -  ``n_iters``: Number of iterations (default = 1200).
+ -  ``n_iters``: Number of iterations (default = 400).
  
 The other parameters include:
 
- -  ``weight_adj``: Adjust weights for extreme outliers using a log-transformation (default = False).
+ -  ``weight_adj``: Adjust weights for extreme outliers using a log-transformation (default = True).
 
  -  ``fast_trimap``: Use only ANNOY for nearest-neighbor search (default = True).
 
- -  ``opt_method``: Optimization method {'sd' (steepest descent, default), 'momentum' (GD with momentum)}.
+ -  ``opt_method``: Optimization method {'sd' (steepest descent), 'momentum' (GD with momentum), 'dbd' (delta-bar-delta, default)}.
 
  -  ``verbose``: Print the progress report (default = True).
 
@@ -85,8 +70,8 @@ An example of adjusting these parameters:
 
     digits = load_digits()
 
-    embedding = trimap.TRIMAP(n_inliers=20,
-                              n_outliers=20,
+    embedding = trimap.TRIMAP(n_inliers=10,
+                              n_outliers=5,
                               n_random=5).fit_transform(digits.data)
 
 The nearest-neighbor calculation is performed by default using  `ANNOY <https://github.com/spotify/annoy>`_. For more accurate results, the first 5 nearest-neighbors of each point can be calculated using ``sklearn.neighbors.NearestNeighbors`` and the results can be combined with those calculated using ANNOY. However, this may significantly increase the runtime. The ``fast_trimap (default = True)`` argument controls this property. For more accurate results, set ``fast_trimap = False``.
