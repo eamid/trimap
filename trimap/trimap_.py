@@ -228,7 +228,7 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, fast_trimap = True, weig
         knn_tree = knn(n_neighbors= n_extra, algorithm='auto').fit(X)
         distances, nbrs = knn_tree.kneighbors(X)
     elif fast_trimap: # use annoy
-        tree = AnnoyIndex(dim)
+        tree = AnnoyIndex(dim, metric='euclidean')
         for i in range(n):
             tree.add_item(i, X[i,:])
         tree.build(10)
@@ -254,7 +254,7 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, fast_trimap = True, weig
         tree = AnnoyIndex(dim)
         for i in range(n):
             tree.add_item(i, X[i,:])
-        tree.build(100)
+        tree.build(100,  metric='euclidean')
         distances = np.empty((n,n_extra), dtype=np.float64)
         dij = np.empty(n_extra, dtype=np.float64)
         for i in range(n):
