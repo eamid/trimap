@@ -176,24 +176,6 @@ are highly appreciated. Please feel free contact me at: eamid@ucsc.edu. If you w
 like to contribute to the code, please `fork the project <https://github.com/eamid/trimap/issues#fork-destination-box>`_
 and send me a pull request.
 
---------
-Citation
---------
-
-If you use TriMap, please cite our current reference on ArXiv:
-
-::
-
-   @article{2018TRIMAP,
-        author = {{Amid}, E. and {Warmuth}, M. K.},
-        title = "{A more globally accurate dimensionality reduction method using triplets}",
-        journal = {ArXiv e-prints},
-        archivePrefix = "arXiv",
-        eprint = {1803.00854},
-        year = 2018,
-        month = march,
-   }
-
 
 
 -------
