@@ -6,13 +6,6 @@ TriMap: Dimensionality Reduction Using Triplet Constraints
 
 @author: Ehsan Amid <eamid@ucsc.edu>
 
-Reference:
-@article{Amid2018AMG,
-  title={A more globally accurate dimensionality reduction method using triplets},
-  author={Ehsan Amid and Manfred K. Warmuth},
-  journal={{arXiv preprint arXiv:1803.00854},
-  year={2018}
-}
 """
 
 
