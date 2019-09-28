@@ -6,7 +6,7 @@ TriMap
 TriMap is a dimensionality reduction method that uses triplet constraints
 to form a low dimensional embedding of a set of points. The triplet constraints
 are of the form "point *i* is closer to point *j* than point *k*". The triplets are 
-sampled from the high-dimensional reprsesentation of the points and a weighting 
+sampled from the high-dimensional representation of the points and a weighting 
 scheme is used to reflect the importance of each triplet. 
 
 TriMap provides a much better global view of the data than the
@@ -20,7 +20,7 @@ The following implementation is in Python.
 How to use TriMap
 -----------------
 
-TriMap enjoys a transformer API similiar to other sklearn libraries. To use 
+TriMap has a transformer API similar to other sklearn libraries. To use 
 TriMap with the default parameters, simply do:
 
 .. code:: python
@@ -31,6 +31,14 @@ TriMap with the default parameters, simply do:
     digits = load_digits()
 
     embedding = trimap.TRIMAP().fit_transform(digits.data)
+
+To calculate the global score, do:
+
+.. code:: python
+
+    gs = trimap.TRIMAP(verbose=False).global_score(digits.data, embedding)
+    print("global score %2.2f" % gs)
+
 
 -----------------
 Parameters
@@ -45,13 +53,14 @@ to tune:
 
  -  ``n_random``: Number of random triplets per point (default = 5).
 
+ -  ``weight_adj``: Adjust weights for extreme outliers using a log-transformation (default = True, 500.0).
+
  -  ``lr``: Learning rate (default = 1000.0).
 
  -  ``n_iters``: Number of iterations (default = 400).
  
 The other parameters include:
 
- -  ``weight_adj``: Adjust weights for extreme outliers using a log-transformation (default = True).
 
  -  ``fast_trimap``: Use only ANNOY for nearest-neighbor search (default = True).
 
@@ -80,29 +89,44 @@ The nearest-neighbor calculation is performed by default using  `ANNOY <https://
 Examples
 --------
 
-The following are some results on real-world datasets. For more results, please refer
-to our paper.
+The following are some results on real-world datasets. The values of nearest-neighbor accuracy and global score are shown as a pair (NN, GS) on top of each figure. For more results, please refer to our paper.
+
+USPS Handwritten Digits (*n = 11,000, d = 256*)
+
+.. image:: results/usps.png
+    :alt: Visualizations of the USPS dataset
+
+20 News Groups (*n = 18,846, d = 100*)
+
+.. image:: results/news20.png
+    :alt: Visualizations of the 20 News Groups dataset
+
+Tabula Muris (*n = 53,760, d = 23,433*)
+
+.. image:: results/tabula.png
+    :alt: Visualizations of the Tabula Muris Mouse Tissues dataset
 
 MNIST Handwritten Digits (*n = 70,000, d = 784*)
 
-.. image:: results/mnist_trimap.png
-    :alt: TriMap embedding of the MNIST dataset
+.. image:: results/mnist.png
+    :alt: Visualizations of the MNIST dataset
 
 Fashion MNIST (*n = 70,000, d = 784*)
 
-.. image:: results/fmnist_trimap.png
-    :alt: TriMap embedding of the Fashion MNIST dataset
+.. image:: results/fmnist.png
+    :alt: Visualizations of the  Fashion MNIST dataset
     
-Tabula Muris (*n = 53,760, d = 23,433*)
+TV News (*n = 129,685, d = 100*)
 
-.. image:: results/tabula_muris_trimap.png
-    :alt: TriMap embedding of the Tabula Muris Mouse Tissues dataset
+.. image:: results/tvnews.png
+    :alt: Visualizations of the  TV News dataset
 
-TV News (*n = 129,685, d = 50*)
 
-.. image:: results/tvnews_trimap.png
-    :alt: TriMap embedding of the TV News dataset
+Runtime of t-SNE, LargeVis, UMAP, and TriMap in the hh:mm:ss format on a single machine with 2.6 GHz Intel Core i5 CPU and 16 GB of memory is given in the following table. We limit the runtime of each method to 12 hours. Also, UMAP runs out of memory on datasets larger than ~4M points.
 
+.. image:: results/runtime.png
+    :alt: Runtime of TriMap compared to other methods
+    
 
 ----------
 Installing

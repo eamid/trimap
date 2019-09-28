@@ -6,8 +6,8 @@ def readme():
 
 configuration = {
     'name' : 'trimap',
-    'version': '1.0.4',
-    'description' : 'TriMap: Dimensionality Reduction Using Triplets',
+    'version': '1.0.5',
+    'description' : 'TriMap: Large-scale Dimensionality Reduction Using Triplets',
     'long_description' : readme(),
     'classifiers' : [
         'Intended Audience :: Science/Research',
@@ -19,9 +19,9 @@ configuration = {
         'Operating System :: POSIX',
         'Operating System :: Unix',
         'Operating System :: MacOS',
-        'Programming Language :: Python :: 2.7',
+        'Programming Language :: Python :: 3.6',
     ],
-    'keywords' : 'dimension reduction triplet t-sne largevis',
+    'keywords' : 'Dimensionality Reduction Triplets t-SNE LargeVis UMAP',
     'url' : 'http://github.com/eamid/trimap',
     'author' : 'Ehsan Amid',
     'author_email' : 'eamid@ucsc.edu',

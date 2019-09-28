@@ -2,9 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 
-TriMap: Dimensionality Reduction Using Triplet Constraints
-
-@author: Ehsan Amid <eamid@ucsc.edu>
+TriMap: Large-scale Dimensionality Reduction Using Triplet Constraints
 
 """
 
@@ -14,11 +12,11 @@ import numba
 from annoy import AnnoyIndex
 from sklearn.neighbors import NearestNeighbors as knn
 from sklearn.decomposition import TruncatedSVD
+from sklearn.decomposition import PCA
 import numpy as np
 import time
 import datetime
 import sys
-from sklearn.decomposition import PCA
 
 if sys.version_info < (3,):
     range = xrange
@@ -44,7 +42,7 @@ def rejection_sample(n_samples, max_int, rejects):
     rejecting the values that are in the "rejects".
 
     """
-    result = np.empty(n_samples, dtype=np.int64)
+    result = np.empty(n_samples, dtype=np.int32)
     for i in range(n_samples):
         reject_sample = True
         while reject_sample:
@@ -61,7 +59,7 @@ def rejection_sample(n_samples, max_int, rejects):
     return result
 
 
-@numba.njit('i8[:,:](f8[:,:],i8[:,:], i8,i8)', parallel=True, nogil=True)
+@numba.njit('i4[:,:](f4[:,:],i4[:,:], i4,i4)', parallel=True, nogil=True)
 def sample_knn_triplets(P, nbrs, n_inlier, n_outlier):
     """
     Sample nearest neighbors triplets based on the similarity values given in P
@@ -85,23 +83,23 @@ def sample_knn_triplets(P, nbrs, n_inlier, n_outlier):
     triplets: Sampled triplets
     """
     n, n_neighbors = nbrs.shape
-    triplets = np.empty((n * n_inlier * n_outlier, 3), dtype=np.int64)
-    for i in range(n):
-        sort_indices = np.argsort(-P[i,:])
-        for j in range(n_inlier):
-            sim = nbrs[i,sort_indices[j+1]]
+    triplets = np.empty((n * n_inlier * n_outlier, 3), dtype=np.int32)
+    for i in numba.prange(n):
+        sort_indices = np.argsort(-P[i])
+        for j in numba.prange(n_inlier):
+            sim = nbrs[i][sort_indices[j+1]]
             samples = rejection_sample(n_outlier, n, sort_indices[:j+2])
-            for k in range(n_outlier):
+            for k in numba.prange(n_outlier):
                 index = i * n_inlier * n_outlier + j * n_outlier + k
                 out = samples[k]
-                triplets[index,0] = i
-                triplets[index,1] = sim
-                triplets[index,2] = out
+                triplets[index][0] = i
+                triplets[index][1] = sim
+                triplets[index][2] = out
     return triplets
 
 
 
-@numba.njit('f8[:,:](f8[:,:],i8,f8[:])', parallel=True, nogil=True)
+@numba.njit('f4[:,:](f4[:,:],i4,f4[:])', parallel=True, nogil=True)
 def sample_random_triplets(X, n_random, sig):
     """
     Sample uniformly random triplets
@@ -121,32 +119,32 @@ def sample_random_triplets(X, n_random, sig):
     rand_triplets: Sampled triplets
     """
     n = X.shape[0]
-    rand_triplets = np.empty((n * n_random, 4), dtype=np.float64)
-    for i in range(n):
-        for j in range(n_random):
+    rand_triplets = np.empty((n * n_random, 4), dtype=np.float32)
+    for i in numba.prange(n):
+        for j in numba.prange(n_random):
             sim = np.random.choice(n)
             while sim == i:
                 sim = np.random.choice(n)
             out = np.random.choice(n)
             while out == i or out == sim:
                 out = np.random.choice(n)
-            p_sim = np.exp(-euclid_dist(X[i,:],X[sim,:])**2/(sig[i] * sig[sim]))
+            p_sim = np.exp(-euclid_dist(X[i],X[sim])**2/(sig[i] * sig[sim]))
             if p_sim < 1e-20:
                 p_sim = 1e-20
-            p_out = np.exp(-euclid_dist(X[i,:],X[out,:])**2/(sig[i] * sig[out]))
+            p_out = np.exp(-euclid_dist(X[i],X[out])**2/(sig[i] * sig[out]))
             if p_out < 1e-20:
                 p_out = 1e-20
             if p_sim < p_out:
                 sim, out = out, sim
                 p_sim, p_out = p_out, p_sim
-            rand_triplets[i * n_random + j,0] = i
-            rand_triplets[i * n_random + j,1] = sim
-            rand_triplets[i * n_random + j,2] = out
-            rand_triplets[i * n_random + j,3] = p_sim/p_out
+            rand_triplets[i * n_random + j][0] = i
+            rand_triplets[i * n_random + j][1] = sim
+            rand_triplets[i * n_random + j][2] = out
+            rand_triplets[i * n_random + j][3] = p_sim/p_out
     return rand_triplets
 
 
-@numba.njit('f8[:,:](f8[:,:],f8[:],i8[:,:])', parallel=True, nogil=True)
+@numba.njit('f4[:,:](f4[:,:],f4[:],i4[:,:])', parallel=True, nogil=True)
 def find_p(distances, sig, nbrs):
     """
     Calculates the similarity matrix P
@@ -166,14 +164,14 @@ def find_p(distances, sig, nbrs):
     P: Pairwise similarity matrix
     """
     n, n_neighbors = distances.shape
-    P = np.zeros((n,n_neighbors), dtype=np.float64)
-    for i in range(n):
-        for j in range(n_neighbors):
-            P[i,j] = np.exp(-distances[i,j]**2/sig[i]/sig[nbrs[i,j]])
+    P = np.zeros((n,n_neighbors), dtype=np.float32)
+    for i in numba.prange(n):
+        for j in numba.prange(n_neighbors):
+            P[i][j] = np.exp(-distances[i][j]**2/sig[i]/sig[nbrs[i][j]])
     return P
 
 
-@numba.njit('f8[:](i8[:,:],f8[:,:],i8[:,:],f8[:],f8[:])',parallel=True, nogil=True)
+@numba.njit('f4[:](i4[:,:],f4[:,:],i4[:,:],f4[:],f4[:])', parallel=True, nogil=True)
 def find_weights(triplets, P, nbrs, distances, sig):
     """
     Calculates the weights for the sampled nearest neighbors triplets
@@ -197,14 +195,14 @@ def find_weights(triplets, P, nbrs, distances, sig):
     weights: Weights for the triplets
     """
     n_triplets = triplets.shape[0]
-    weights = np.empty(n_triplets, dtype=np.float64)
-    for t in range(n_triplets):
-        i = triplets[t,0]
+    weights = np.empty(n_triplets, dtype=np.float32)
+    for t in numba.prange(n_triplets):
+        i = triplets[t][0]
         sim = 0
-        while(nbrs[i,sim] != triplets[t,1]):
+        while(nbrs[i][sim] != triplets[t][1]):
             sim += 1
-        p_sim = P[i,sim]
-        p_out = np.exp(-distances[t]**2/(sig[i] * sig[triplets[t,2]]))
+        p_sim = P[i][sim]
+        p_out = np.exp(-distances[t]**2/(sig[i] * sig[triplets[t][2]]))
         if p_out < 1e-20:
             p_out = 1e-20
         weights[t] = p_sim/p_out
@@ -212,44 +210,46 @@ def find_weights(triplets, P, nbrs, distances, sig):
 
 def generate_triplets(X, n_inlier, n_outlier, n_random, fast_trimap = True, weight_adj = True, verbose = True):
     n, dim = X.shape
+    pca_solution = False
     if dim > 100:
         X = TruncatedSVD(n_components=100, random_state=0).fit_transform(X)
         dim = 100
+        pca_solution = True
     exact = n <= 10000
-    n_extra = min(max(n_inlier, 150),n)
+    n_extra = min(max(n_inlier, 100),n)
     if exact: # do exact knn search
         knn_tree = knn(n_neighbors= n_extra, algorithm='auto').fit(X)
         distances, nbrs = knn_tree.kneighbors(X)
+        nbrs = nbrs.astype(np.int32)
+        distances = distances.astype(np.float32)
     elif fast_trimap: # use annoy
         tree = AnnoyIndex(dim, metric='euclidean')
         for i in range(n):
             tree.add_item(i, X[i,:])
         tree.build(10)
-        nbrs = np.empty((n,n_extra), dtype=np.int64)
-        distances = np.empty((n,n_extra), dtype=np.float64)
-        dij = np.empty(n_extra, dtype=np.float64)
+        nbrs = np.empty((n,n_extra), dtype=np.int32)
+        distances = np.empty((n,n_extra), dtype=np.float32)
+        dij = np.empty(n_extra, dtype=np.float32)
         for i in range(n):
             nbrs[i,:] = tree.get_nns_by_item(i, n_extra)
             for j in range(n_extra):
-                dij[j] = euclid_dist(X[i,:], X[nbrs[i,j],:])
-            sort_indices = np.argsort(dij)
+                distances[i,j] = tree.get_distance(i, nbrs[i,j])
+            sort_indices = np.argsort(distances[i,:])
             nbrs[i,:] = nbrs[i,sort_indices]
-            # for j in range(n_extra):
-            #     distances[i,j] = tree.get_distance(i, nbrs[i,j])
-            distances[i,:] = dij[sort_indices]
+            distances[i,:] = distances[i,sort_indices]
     else:
         n_bf = 10
         n_extra += n_bf
         knn_tree = knn(n_neighbors= n_bf, algorithm='auto').fit(X)
         _, nbrs_bf = knn_tree.kneighbors(X)
-        nbrs = np.empty((n,n_extra), dtype=np.int64)
+        nbrs = np.empty((n,n_extra), dtype=np.int32)
         nbrs[:,:n_bf] = nbrs_bf
         tree = AnnoyIndex(dim, metric='euclidean')
         for i in range(n):
             tree.add_item(i, X[i,:])
         tree.build(100)
-        distances = np.empty((n,n_extra), dtype=np.float64)
-        dij = np.empty(n_extra, dtype=np.float64)
+        distances = np.empty((n,n_extra), dtype=np.float32)
+        dij = np.empty(n_extra, dtype=np.float32)
         for i in range(n):
             nbrs[i,n_bf:] = tree.get_nns_by_item(i, n_extra-n_bf)
             unique_nn = np.unique(nbrs[i,:])
@@ -262,53 +262,52 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, fast_trimap = True, weig
             distances[i,:n_unique] = dij[sort_indices]
     if verbose:
         print("found nearest neighbors")
-    sig = np.maximum(np.mean(distances[:, 10:20], axis=1), 1e-20) # scale parameter
+    sig = np.maximum(np.mean(distances[:, 3:6], axis=1), 1e-20) # scale parameter
     P = find_p(distances, sig, nbrs)
     triplets = sample_knn_triplets(P, nbrs, n_inlier, n_outlier)
     n_triplets = triplets.shape[0]
-    outlier_dist = np.empty(n_triplets, dtype=np.float64)
+    outlier_dist = np.empty(n_triplets, dtype=np.float32)
     if exact or  not fast_trimap:
         for t in range(n_triplets):
             outlier_dist[t] = np.sqrt(np.sum((X[triplets[t,0],:] - X[triplets[t,2],:])**2))
     else:
         for t in range(n_triplets):
             outlier_dist[t] = euclid_dist(X[triplets[t,0],:], X[triplets[t,2],:])
-            # outlier_dist[t] = tree.get_distance(triplets[t,0], triplets[t,2])
     weights = find_weights(triplets, P, nbrs, outlier_dist, sig)
     if n_random > 0:
         rand_triplets = sample_random_triplets(X, n_random, sig)
         rand_weights = rand_triplets[:,-1]
-        rand_triplets = rand_triplets[:,:-1].astype(np.int64)
+        rand_triplets = rand_triplets[:,:-1].astype(np.int32)
         triplets = np.vstack((triplets, rand_triplets))
         weights = np.hstack((weights, rand_weights))
     weights /= np.max(weights)
     weights += 0.0001
     if weight_adj:
         if not isinstance(weight_adj, (int, float)):
-            weight_adj = 400.0
+            weight_adj = 500.0
         weights = np.log(1 + weight_adj * weights)
         weights /= np.max(weights)
-    return (triplets, weights)
+    return (triplets, weights, pca_solution)
 
 
-@numba.njit('void(f8[:,:],f8[:,:],f8[:,:],f8,i8,i8)', parallel=True, nogil=True)
+@numba.njit('void(f4[:,:],f4[:,:],f4[:,:],f4,i4,i4)', parallel=True, nogil=True)
 def update_embedding(Y, grad, vel, lr, iter_num, opt_method):
     n, dim = Y.shape
     if opt_method == 0: # sd
-        for i in range(n):
-            for d in range(dim):
-                Y[i,d] -= lr * grad[i,d]
+        for i in numba.prange(n):
+            for d in numba.prange(dim):
+                Y[i][d] -= lr * grad[i][d]
     elif opt_method == 1: # momentum
         if iter_num > 250:
             gamma = 0.5
         else:
             gamma = 0.3
-        for i in range(n):
-            for d in range(dim):
-                vel[i,d] = gamma * vel[i,d] - lr * grad[i,d] # - 1e-5 * Y[i,d]
-                Y[i,d] += vel[i,d]
+        for i in numba.prange(n):
+            for d in numba.prange(dim):
+                vel[i][d] = gamma * vel[i][d] - lr * grad[i][d] # - 1e-5 * Y[i,d]
+                Y[i][d] += vel[i][d]
 
-@numba.njit('void(f8[:,:],f8[:,:],f8[:,:],f8[:,:],f8,i8)', parallel=True, nogil=True)
+@numba.njit('void(f4[:,:],f4[:,:],f4[:,:],f4[:,:],f4,i4)', parallel=True, nogil=True)
 def update_embedding_dbd(Y, grad, vel, gain, lr, iter_num):
     n, dim = Y.shape
     if  iter_num > 250:
@@ -316,20 +315,19 @@ def update_embedding_dbd(Y, grad, vel, gain, lr, iter_num):
     else:
         gamma = 0.5
     min_gain = 0.01
-    for i in range(n):
-        for d in range(dim):
-            gain[i,d] = (gain[i,d]+0.2) if (np.sign(vel[i,d]) != np.sign(grad[i,d])) else np.maximum(gain[i,d]*0.8, min_gain)
-            vel[i,d] = gamma * vel[i,d] - lr * gain[i,d] * grad[i,d]
-            Y[i,d] += vel[i,d]
+    for i in numba.prange(n):
+        for d in numba.prange(dim):
+            gain[i][d] = (gain[i][d]+0.2) if (np.sign(vel[i][d]) != np.sign(grad[i][d])) else np.maximum(gain[i][d]*0.8, min_gain)
+            vel[i][d] = gamma * vel[i][d] - lr * gain[i][d] * grad[i][d]
+            Y[i][d] += vel[i][d]
 
-                
-@numba.njit('f8[:,:](f8[:,:],i8,i8,i8[:,:],f8[:])', parallel=True, nogil=True)
+@numba.njit('f4[:,:](f4[:,:],i4,i4,i4[:,:],f4[:])', parallel=True, nogil=True)
 def trimap_grad(Y, n_inlier, n_outlier, triplets, weights):
     n, dim = Y.shape
     n_triplets = triplets.shape[0]
-    grad = np.zeros((n, dim), dtype=np.float64)
-    y_ij = np.empty(dim, dtype=np.float64)
-    y_ik = np.empty(dim, dtype=np.float64)
+    grad = np.zeros((n, dim), dtype=np.float32)
+    y_ij = np.empty(dim, dtype=np.float32)
+    y_ik = np.empty(dim, dtype=np.float32)
     n_viol = 0.0
     loss = 0.0
     n_knn_triplets = n * n_inlier * n_outlier
@@ -360,11 +358,10 @@ def trimap_grad(Y, n_inlier, n_outlier, triplets, weights):
             grad[i,d] += gs - go
             grad[j,d] -= gs
             grad[k,d] += go
-    last = np.zeros((1,dim), dtype=np.float64)
+    last = np.zeros((1,dim), dtype=np.float32)
     last[0] = loss
     last[1] = n_viol
-    return np.vstack((grad, last))
-    
+    return np.vstack((grad, last))  
     
 def trimap(X, triplets, weights, n_dims, n_inliers, n_outliers, n_random, lr, n_iters, Yinit,
  weight_adj, fast_trimap, opt_method, verbose, return_seq):
@@ -379,7 +376,8 @@ def trimap(X, triplets, weights, n_dims, n_inliers, n_outliers, n_random, lr, n_
         X -= np.min(X)
         X /= np.max(X)
         X -= np.mean(X,axis=0)
-        triplets, weights = generate_triplets(X, n_inliers, n_outliers, n_random, fast_trimap, weight_adj, verbose)
+        pca_solution = False
+        triplets, weights, pca_solution = generate_triplets(X, n_inliers, n_outliers, n_random, fast_trimap, weight_adj, verbose)
         if verbose:
             print("sampled triplets")
     else:
@@ -387,11 +385,14 @@ def trimap(X, triplets, weights, n_dims, n_inliers, n_outliers, n_random, lr, n_
             print("using stored triplets")
         
     if Yinit is None or Yinit is 'pca':
-        Y = 0.01 * PCA(n_components = n_dims).fit_transform(X)
+        if pca_solution:
+            Y = 0.01 * X[:,n_dims]
+        else:
+            Y = 0.01 * PCA(n_components = n_dims).fit_transform(X).astype(np.float32)
     elif Yinit is 'random':
-        Y = np.random.normal(size=[n, n_dims]) * 0.0001
+        Y = np.random.normal(size=[n, n_dims]).astype(np.float32) * 0.0001
     else:
-        Y = Yinit
+        Y = Yinit.astype(np.float32)
     if return_seq:
         Y_all = np.zeros((n, n_dims, int(n_iters/10 + 1)))
         Y_all[:,:,0] = Yinit
@@ -402,9 +403,9 @@ def trimap(X, triplets, weights, n_dims, n_inliers, n_outliers, n_random, lr, n_
     opt_method_index = {'sd':0, 'momentum':1, 'dbd':2}
     if verbose:
         print("running TriMap with " + opt_method)
-    vel = np.zeros_like(Y, dtype=np.float64)
+    vel = np.zeros_like(Y, dtype=np.float32)
     if opt_method_index[opt_method] == 2:
-        gain = np.ones_like(Y, dtype=np.float64)
+        gain = np.ones_like(Y, dtype=np.float32)
 
     for itr in range(n_iters):
         old_C = C
@@ -535,7 +536,7 @@ class TRIMAP(BaseEstimator):
 
         init: Initial solution
         """
-        X = X.astype(np.float64)
+        X = X.astype(np.float32)
         
         self.embedding_, self.triplets, self.weights = trimap(X, self.triplets,
             self.weights, self.n_dims, self.n_inliers, self.n_outliers, self.n_random,
@@ -567,7 +568,7 @@ class TRIMAP(BaseEstimator):
         """
         if self.verbose:
             print("pre-processing")
-        X = X.astype(np.float64)
+        X = X.astype(np.float32)
         X -= np.min(X)
         X /= np.max(X)
         X -= np.mean(X,axis=0)
@@ -599,12 +600,12 @@ class TRIMAP(BaseEstimator):
         def global_loss_(X, Y):
             X = X - np.mean(X, axis=0)
             Y = Y - np.mean(Y, axis=0)
-            A = np.dot(np.dot(X.T, Y), np.linalg.inv(np.dot(Y.T, Y)))
-            return np.mean(np.power(X.T - np.dot(A, Y.T), 2))
+            A = X.T @ (Y @ np.linalg.inv(Y.T @ Y))
+            return np.mean(np.power(X.T - A @ Y.T, 2))
         n_dims = Y.shape[1]
         Y_pca = PCA(n_components = n_dims).fit_transform(X)
-        gl_pca = global_loss_(X, Y_pca)
-        gl_emb = global_loss_(X, Y)
-        return np.exp(-(gl_emb-gl_pca)/gl_pca)
+        gs_pca = global_loss_(X, Y_pca)
+        gs_emb = global_loss_(X, Y)
+        return np.exp(-(gs_emb-gs_pca)/gs_pca)
         
 
