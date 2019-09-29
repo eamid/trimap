@@ -473,7 +473,7 @@ class TRIMAP(BaseEstimator):
 
     verbose: Print the progress report (default = True)
 
-    weight_adj: Adjusting the weights using a non-linear transformation (default = True)
+    weight_adj: Adjusting the weights using a non-linear transformation (default = 500.0)
 
     return_seq: Return the sequence of maps recorded every 10 iterations (default = False)
     """
@@ -488,7 +488,7 @@ class TRIMAP(BaseEstimator):
                  triplets=None,
                  weights=None,
                  verbose=True,
-                 weight_adj=True,
+                 weight_adj=500.0,
                  fast_trimap=True,
                  opt_method='dbd',
                  return_seq=False

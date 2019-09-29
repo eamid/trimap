@@ -53,7 +53,7 @@ to tune:
 
  -  ``n_random``: Number of random triplets per point (default = 5).
 
- -  ``weight_adj``: Adjust weights for extreme outliers using a log-transformation (default = True, 500.0).
+ -  ``weight_adj``: Adjust weights for extreme outliers using a log-transformation (default = 500.0).
 
  -  ``lr``: Learning rate (default = 1000.0).
 
