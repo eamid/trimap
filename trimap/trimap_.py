@@ -210,11 +210,9 @@ def find_weights(triplets, P, nbrs, distances, sig):
 
 def generate_triplets(X, n_inlier, n_outlier, n_random, fast_trimap = True, weight_adj = True, verbose = True):
     n, dim = X.shape
-    pca_solution = False
     if dim > 100:
         X = TruncatedSVD(n_components=100, random_state=0).fit_transform(X)
         dim = 100
-        pca_solution = True
     exact = n <= 10000
     n_extra = min(max(n_inlier, 100),n)
     if exact: # do exact knn search
@@ -287,7 +285,7 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, fast_trimap = True, weig
             weight_adj = 500.0
         weights = np.log(1 + weight_adj * weights)
         weights /= np.max(weights)
-    return (triplets, weights, pca_solution)
+    return (triplets, weights)
 
 
 @numba.njit('void(f4[:,:],f4[:,:],f4[:,:],f4,i4,i4)', parallel=True, nogil=True)
@@ -376,8 +374,7 @@ def trimap(X, triplets, weights, n_dims, n_inliers, n_outliers, n_random, lr, n_
         X -= np.min(X)
         X /= np.max(X)
         X -= np.mean(X,axis=0)
-        pca_solution = False
-        triplets, weights, pca_solution = generate_triplets(X, n_inliers, n_outliers, n_random, fast_trimap, weight_adj, verbose)
+        triplets, weights = generate_triplets(X, n_inliers, n_outliers, n_random, fast_trimap, weight_adj, verbose)
         if verbose:
             print("sampled triplets")
     else:
@@ -385,10 +382,7 @@ def trimap(X, triplets, weights, n_dims, n_inliers, n_outliers, n_random, lr, n_
             print("using stored triplets")
         
     if Yinit is None or Yinit is 'pca':
-        if pca_solution:
-            Y = 0.01 * X[:,n_dims]
-        else:
-            Y = 0.01 * PCA(n_components = n_dims).fit_transform(X).astype(np.float32)
+        Y = 0.01 * PCA(n_components = n_dims).fit_transform(X).astype(np.float32)
     elif Yinit is 'random':
         Y = np.random.normal(size=[n, n_dims]).astype(np.float32) * 0.0001
     else:
