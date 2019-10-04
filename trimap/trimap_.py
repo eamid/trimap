@@ -17,6 +17,7 @@ import numpy as np
 import time
 import datetime
 import sys
+import warnings
 
 if sys.version_info < (3,):
     range = xrange
@@ -24,16 +25,81 @@ if sys.version_info < (3,):
 bold = "\033[1m"
 reset = "\033[0;0m"
 
-@numba.njit()
+
+@numba.njit('f4(f4[:])')
+def l2_norm(x):
+    """
+    L2 norm of a vector.
+
+    """
+    result = 0.0
+    for i in range(x.shape[0]):
+        result += x[i]**2
+    return np.sqrt(result)
+
+
+@numba.njit('f4(f4[:],f4[:])')
 def euclid_dist(x1, x2):
     """
-    Fast Euclidean distance calculation between two vectors.
+    Euclidean distance between two vectors.
 
     """
     result = 0.0
     for i in range(x1.shape[0]):
         result += (x1[i]-x2[i])**2
     return np.sqrt(result)
+
+
+@numba.njit('f4(f4[:],f4[:])')
+def manhattan_dist(x1, x2):
+    """
+    Manhattan distance between two vectors.
+
+    """
+    result = 0.0
+    for i in range(x1.shape[0]):
+        result += np.abs(x1[i]-x2[i])
+    return result
+
+
+@numba.njit('f4(f4[:],f4[:])')
+def angular_dist(x1, x2):
+    """
+    Angular (i.e. cosine) distance between two vectors.
+
+    """
+    x1_norm = np.maximum(l2_norm(x1), 1e-20)
+    x2_norm = np.maximum(l2_norm(x2), 1e-20)
+    result = 0.0
+    for i in range(x1.shape[0]):
+        result += x1[i] * x2[i]
+    return np.sqrt(2.0 - 2.0 * result/x1_norm/x2_norm)
+
+
+@numba.njit('f4(f4[:],f4[:])')
+def hamming_dist(x1, x2):
+    """
+    Hamming distance between two vectors.
+
+    """
+    result = 0.0
+    for i in range(x1.shape[0]):
+        if x1[i] != x2[i]:
+            result += 1.0
+    return result
+
+
+@numba.njit()
+def calculate_dist(x1, x2, distance_index):
+    if distance_index == 0:
+        return euclid_dist(x1, x2)
+    elif distance_index == 1:
+        return manhattan_dist(x1, x2)
+    elif distance_index == 2:
+        return angular_dist(x1, x2)
+    elif distance_index == 3:
+        return hamming_dist(x1, x2)
+
 
 @numba.njit()
 def rejection_sample(n_samples, max_int, rejects):
@@ -59,7 +125,7 @@ def rejection_sample(n_samples, max_int, rejects):
     return result
 
 
-@numba.njit('i4[:,:](f4[:,:],i4[:,:], i4,i4)', parallel=True, nogil=True)
+@numba.njit('i4[:,:](f4[:,:],i4[:,:],i4,i4)', parallel=True, nogil=True)
 def sample_knn_triplets(P, nbrs, n_inlier, n_outlier):
     """
     Sample nearest neighbors triplets based on the similarity values given in P
@@ -99,8 +165,8 @@ def sample_knn_triplets(P, nbrs, n_inlier, n_outlier):
 
 
 
-@numba.njit('f4[:,:](f4[:,:],i4,f4[:])', parallel=True, nogil=True)
-def sample_random_triplets(X, n_random, sig):
+@numba.njit('f4[:,:](f4[:,:],i4,f4[:],i4)', parallel=True, nogil=True)
+def sample_random_triplets(X, n_random, sig, distance_index):
     """
     Sample uniformly random triplets
 
@@ -112,6 +178,8 @@ def sample_random_triplets(X, n_random, sig):
     n_random: Number of random triplets per point
 
     sig: Scaling factor for the distances
+
+    distance_index: index of the distance measure
 
     Output
     ------
@@ -128,10 +196,10 @@ def sample_random_triplets(X, n_random, sig):
             out = np.random.choice(n)
             while out == i or out == sim:
                 out = np.random.choice(n)
-            p_sim = np.exp(-euclid_dist(X[i],X[sim])**2/(sig[i] * sig[sim]))
+            p_sim = np.exp(-calculate_dist(X[i],X[sim], distance_index)**2/(sig[i] * sig[sim]))
             if p_sim < 1e-20:
                 p_sim = 1e-20
-            p_out = np.exp(-euclid_dist(X[i],X[out])**2/(sig[i] * sig[out]))
+            p_out = np.exp(-calculate_dist(X[i],X[out], distance_index)**2/(sig[i] * sig[out]))
             if p_out < 1e-20:
                 p_out = 1e-20
             if p_sim < p_out:
@@ -208,76 +276,48 @@ def find_weights(triplets, P, nbrs, distances, sig):
         weights[t] = p_sim/p_out
     return weights
 
-def generate_triplets(X, n_inlier, n_outlier, n_random, fast_trimap = True, weight_adj = True, verbose = True):
+def generate_triplets(X, n_inlier, n_outlier, n_random, distance='euclidean', apply_pca=True, weight_adj = True, verbose = True):
+    distance_dict = {'euclidean':0, 'manhattan':1, 'angular':2, 'hamming':3}
+    distance_index = distance_dict[distance]
     n, dim = X.shape
-    if dim > 100:
+    if dim > 100 and apply_pca:
         X = TruncatedSVD(n_components=100, random_state=0).fit_transform(X)
         dim = 100
-    exact = n <= 10000
-    n_extra = min(max(n_inlier, 100),n)
-    if exact: # do exact knn search
-        knn_tree = knn(n_neighbors= n_extra, algorithm='auto').fit(X)
-        distances, nbrs = knn_tree.kneighbors(X)
-        nbrs = nbrs.astype(np.int32)
-        distances = distances.astype(np.float32)
-    elif fast_trimap: # use annoy
-        tree = AnnoyIndex(dim, metric='euclidean')
-        for i in range(n):
-            tree.add_item(i, X[i,:])
-        tree.build(10)
-        nbrs = np.empty((n,n_extra), dtype=np.int32)
-        distances = np.empty((n,n_extra), dtype=np.float32)
-        dij = np.empty(n_extra, dtype=np.float32)
-        for i in range(n):
-            nbrs[i,:] = tree.get_nns_by_item(i, n_extra)
-            for j in range(n_extra):
-                distances[i,j] = tree.get_distance(i, nbrs[i,j])
-            sort_indices = np.argsort(distances[i,:])
-            nbrs[i,:] = nbrs[i,sort_indices]
-            distances[i,:] = distances[i,sort_indices]
-    else:
-        n_bf = 10
-        n_extra += n_bf
-        knn_tree = knn(n_neighbors= n_bf, algorithm='auto').fit(X)
-        _, nbrs_bf = knn_tree.kneighbors(X)
-        nbrs = np.empty((n,n_extra), dtype=np.int32)
-        nbrs[:,:n_bf] = nbrs_bf
-        tree = AnnoyIndex(dim, metric='euclidean')
-        for i in range(n):
-            tree.add_item(i, X[i,:])
-        tree.build(100)
-        distances = np.empty((n,n_extra), dtype=np.float32)
-        dij = np.empty(n_extra, dtype=np.float32)
-        for i in range(n):
-            nbrs[i,n_bf:] = tree.get_nns_by_item(i, n_extra-n_bf)
-            unique_nn = np.unique(nbrs[i,:])
-            n_unique = len(unique_nn)
-            nbrs[i,:n_unique] = unique_nn
-            for j in range(n_unique):
-                dij[j] = euclid_dist(X[i,:], X[nbrs[i,j],:])
-            sort_indices = np.argsort(dij[:n_unique])
-            nbrs[i,:n_unique] = nbrs[i,sort_indices]
-            distances[i,:n_unique] = dij[sort_indices]
+        if verbose:
+            print("applied PCA")
+    n_extra = min(max(n_inlier, 50),n)
+    # n_extra = n_inlier + 1
+    tree = AnnoyIndex(dim, metric=distance)
+    for i in range(n):
+        tree.add_item(i, X[i,:])
+    tree.build(20)
+    nbrs = np.empty((n,n_extra), dtype=np.int32)
+    distances = np.empty((n,n_extra), dtype=np.float32)
+    dij = np.empty(n_extra, dtype=np.float32)
+    for i in range(n):
+        nbrs[i,:] = tree.get_nns_by_item(i, n_extra)
+        for j in range(n_extra):
+            distances[i,j] = tree.get_distance(i, nbrs[i,j])
+        sort_indices = np.argsort(distances[i,:])
+        nbrs[i,:] = nbrs[i,sort_indices]
+        distances[i,:] = distances[i,sort_indices]
     if verbose:
         print("found nearest neighbors")
-    sig = np.maximum(np.mean(distances[:, 3:6], axis=1), 1e-20) # scale parameter
+    sig = np.maximum(np.mean(distances[:, 3:6], axis=1), 1e-10) # scale parameter
     P = find_p(distances, sig, nbrs)
     triplets = sample_knn_triplets(P, nbrs, n_inlier, n_outlier)
     n_triplets = triplets.shape[0]
     outlier_dist = np.empty(n_triplets, dtype=np.float32)
-    if exact or  not fast_trimap:
-        for t in range(n_triplets):
-            outlier_dist[t] = np.sqrt(np.sum((X[triplets[t,0],:] - X[triplets[t,2],:])**2))
-    else:
-        for t in range(n_triplets):
-            outlier_dist[t] = euclid_dist(X[triplets[t,0],:], X[triplets[t,2],:])
+    for t in range(n_triplets):
+        outlier_dist[t] = calculate_dist(X[triplets[t,0],:], X[triplets[t,2],:], distance_index)
     weights = find_weights(triplets, P, nbrs, outlier_dist, sig)
     if n_random > 0:
-        rand_triplets = sample_random_triplets(X, n_random, sig)
+        rand_triplets = sample_random_triplets(X, n_random, sig, distance_index)
         rand_weights = rand_triplets[:,-1]
         rand_triplets = rand_triplets[:,:-1].astype(np.int32)
         triplets = np.vstack((triplets, rand_triplets))
         weights = np.hstack((weights, rand_weights))
+    weights[np.isnan(weights)] = 0.0
     weights /= np.max(weights)
     weights += 0.0001
     if weight_adj:
@@ -333,7 +373,7 @@ def trimap_grad(Y, n_inlier, n_outlier, triplets, weights):
         i = triplets[t,0]
         j = triplets[t,1]
         k = triplets[t,2]
-        if (t % n_outlier) == 0 or (t >= n_knn_triplets): # update y_ij, d_ij
+        if (t % n_outlier) == 0 or (t >= n_knn_triplets):  # update y_ij, y_ik, d_ij, d_ik
             d_ij = 1.0
             d_ik = 1.0
             for d in range(dim):
@@ -341,7 +381,7 @@ def trimap_grad(Y, n_inlier, n_outlier, triplets, weights):
                 y_ik[d] = Y[i,d] - Y[k,d]
                 d_ij += y_ij[d]**2
                 d_ik += y_ik[d]**2
-        else:
+        else:  # update y_ik and d_ik only
             d_ik = 1.0
             for d in range(dim):
                 y_ik[d] = Y[i,d] - Y[k,d]
@@ -361,8 +401,14 @@ def trimap_grad(Y, n_inlier, n_outlier, triplets, weights):
     last[1] = n_viol
     return np.vstack((grad, last))  
     
-def trimap(X, triplets, weights, n_dims, n_inliers, n_outliers, n_random, lr, n_iters, Yinit,
- weight_adj, fast_trimap, opt_method, verbose, return_seq):
+def trimap(X, triplets, weights, n_dims, n_inliers, n_outliers, n_random, distance, lr, n_iters, Yinit,
+ weight_adj, apply_pca, opt_method, verbose, return_seq):
+    """
+    Apply TriMap.
+
+    """
+
+    opt_method_dict = {'sd':0, 'momentum':1, 'dbd':2}
     if verbose:
         t = time.time()
     n, dim = X.shape
@@ -371,16 +417,17 @@ def trimap(X, triplets, weights, n_dims, n_inliers, n_outliers, n_random, lr, n_
     if triplets[0] is None:
         if verbose:
             print("pre-processing")
-        X -= np.min(X)
-        X /= np.max(X)
-        X -= np.mean(X,axis=0)
-        triplets, weights = generate_triplets(X, n_inliers, n_outliers, n_random, fast_trimap, weight_adj, verbose)
+        if distance != 'hamming':
+            X -= np.min(X)
+            X /= np.max(X)
+            X -= np.mean(X,axis=0)
+        triplets, weights = generate_triplets(X, n_inliers, n_outliers, n_random, distance, apply_pca, weight_adj, verbose)
         if verbose:
             print("sampled triplets")
     else:
         if verbose:
             print("using stored triplets")
-        
+
     if Yinit is None or Yinit is 'pca':
         Y = 0.01 * PCA(n_components = n_dims).fit_transform(X).astype(np.float32)
     elif Yinit is 'random':
@@ -390,20 +437,20 @@ def trimap(X, triplets, weights, n_dims, n_inliers, n_outliers, n_random, lr, n_
     if return_seq:
         Y_all = np.zeros((n, n_dims, int(n_iters/10 + 1)))
         Y_all[:,:,0] = Yinit
+
     C = np.inf
     tol = 1e-7
     n_triplets = float(triplets.shape[0])
     lr = lr * n / n_triplets
-    opt_method_index = {'sd':0, 'momentum':1, 'dbd':2}
     if verbose:
         print("running TriMap with " + opt_method)
     vel = np.zeros_like(Y, dtype=np.float32)
-    if opt_method_index[opt_method] == 2:
+    if opt_method_dict[opt_method] == 2:
         gain = np.ones_like(Y, dtype=np.float32)
 
     for itr in range(n_iters):
         old_C = C
-        if opt_method_index[opt_method] == 0:
+        if opt_method_dict[opt_method] == 0:
             grad = trimap_grad(Y, n_inliers, n_outliers, triplets, weights)
         else:
             if itr > 250:
@@ -415,13 +462,13 @@ def trimap(X, triplets, weights, n_dims, n_inliers, n_outliers, n_random, lr, n_
         n_viol = grad[-1,1]
             
         # update Y
-        if opt_method_index[opt_method] < 2:
-            update_embedding(Y, grad, vel, lr, itr, opt_method_index[opt_method])
+        if opt_method_dict[opt_method] < 2:
+            update_embedding(Y, grad, vel, lr, itr, opt_method_dict[opt_method])
         else:
             update_embedding_dbd(Y, grad, vel, gain, lr, itr)
         
         # update the learning rate
-        if opt_method_index[opt_method] < 2:
+        if opt_method_dict[opt_method] < 2:
             if old_C > C + tol:
                 lr = lr * 1.01
             else:
@@ -457,11 +504,13 @@ class TRIMAP(BaseEstimator):
 
     n_random: Number of random triplet constraints per point (default = 5)
 
+    distance: Distance measure ('euclidean' (default), 'manhattan', 'angular', 'hamming')
+
     lr: Learning rate (default = 1000.0)
 
     n_iters: Number of iterations (default = 400)
 
-    fast_trimap: Use fast nearest neighbor calculation (default = True)
+    apply_pca: Apply PCA to reduce the dimensions to 100 if necessary before the nearest-neighbor calculation (default = True)
 
     opt_method: Optimization method ('sd': steepest descent,  'momentum': GD with momentum, 'dbd': GD with momentum delta-bar-delta (default))
 
@@ -477,13 +526,14 @@ class TRIMAP(BaseEstimator):
                  n_inliers=10,
                  n_outliers=5,
                  n_random=5,
+                 distance='euclidean',
                  lr=1000.0,
                  n_iters=400,
                  triplets=None,
                  weights=None,
                  verbose=True,
                  weight_adj=500.0,
-                 fast_trimap=True,
+                 apply_pca=True,
                  opt_method='dbd',
                  return_seq=False
                  ):
@@ -491,12 +541,13 @@ class TRIMAP(BaseEstimator):
         self.n_inliers = n_inliers
         self.n_outliers = n_outliers
         self.n_random = n_random
+        self.distance = distance
         self.lr = lr
         self.n_iters = n_iters
         self.triplets = triplets,
         self.weights = weights
         self.weight_adj = weight_adj
-        self.fast_trimap = fast_trimap
+        self.apply_pca = apply_pca
         self.opt_method = opt_method
         self.verbose = verbose
         self.return_seq = return_seq
@@ -511,13 +562,15 @@ class TRIMAP(BaseEstimator):
             raise ValueError('The number of random triplets must be a non-negative number.')
         if self.lr <= 0:
             raise ValueError('The learning rate must be a positive value.')
-
+        if self.distance == 'hamming' and apply_pca:
+            warnings.warn('apply_pca = True for Hamming distance.')
+            
         if self.verbose:
-            print("TRIMAP(n_inliers={}, n_outliers={}, n_random={}, "
-                  "lr={}, n_iters={}, weight_adj={}, fast_trimap = {}, opt_method = {}, verbose={}, return_seq={})".format(
-                  n_inliers, n_outliers, n_random, lr, n_iters, weight_adj, fast_trimap, opt_method, verbose, return_seq))
-            if not self.fast_trimap:
-                print(bold + "running exact nearest neighbors search. TriMap may be slow!" + reset)
+            print("TRIMAP(n_inliers={}, n_outliers={}, n_random={}, distance={},"
+                  "lr={}, n_iters={}, weight_adj={}, apply_pca={}, opt_method={}, verbose={}, return_seq={})".format(
+                  n_inliers, n_outliers, n_random, distance, lr, n_iters, weight_adj, apply_pca, opt_method, verbose, return_seq))
+            if not self.apply_pca:
+                print(bold + "running ANNOY on high-dimensional data. nearest-neighbor search may be slow!" + reset)
 
     def fit(self, X, init = None):
         """
@@ -533,8 +586,8 @@ class TRIMAP(BaseEstimator):
         X = X.astype(np.float32)
         
         self.embedding_, self.triplets, self.weights = trimap(X, self.triplets,
-            self.weights, self.n_dims, self.n_inliers, self.n_outliers, self.n_random,
-            self.lr, self.n_iters, init, self.weight_adj, self.fast_trimap, self.opt_method, self.verbose, self.return_seq)
+            self.weights, self.n_dims, self.n_inliers, self.n_outliers, self.n_random, self.distance,
+            self.lr, self.n_iters, init, self.weight_adj, self.apply_pca, self.opt_method, self.verbose, self.return_seq)
         return self
 
     def fit_transform(self, X, init = None):
@@ -563,10 +616,11 @@ class TRIMAP(BaseEstimator):
         if self.verbose:
             print("pre-processing")
         X = X.astype(np.float32)
-        X -= np.min(X)
-        X /= np.max(X)
-        X -= np.mean(X,axis=0)
-        self.triplets, self.weights = generate_triplets(X, self.n_inliers, self.n_outliers, self.n_random, self.fast_trimap, self.weight_adj, self.verbose)
+        if self.distance != 'hamming':
+            X -= np.min(X)
+            X /= np.max(X)
+            X -= np.mean(X,axis=0)
+        self.triplets, self.weights = generate_triplets(X, self.n_inliers, self.n_outliers, self.n_random, self.distance, self.apply_pca, self.weight_adj, self.verbose)
         if self.verbose:
             print("sampled triplets")
         

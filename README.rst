@@ -4,17 +4,18 @@ TriMap
 ======
 
 TriMap is a dimensionality reduction method that uses triplet constraints
-to form a low dimensional embedding of a set of points. The triplet constraints
+to form a low-dimensional embedding of a set of points. The triplet constraints
 are of the form "point *i* is closer to point *j* than point *k*". The triplets are 
 sampled from the high-dimensional representation of the points and a weighting 
 scheme is used to reflect the importance of each triplet. 
 
-TriMap provides a much better global view of the data than the
+TriMap provides a significantly better global view of the data than the
 other dimensionality reduction methods such t-SNE, LargeVis, and UMAP. The global 
 structure includes relative distances of the clusters, multiple scales in 
-the data, and the existence of possible outliers. 
+the data, and the existence of possible outliers. We define a global score to quantify the quality of an embedding in reflecting the global structure of the data.
 
-The following implementation is in Python. 
+The following implementation is in Python. Further details and more experimental results are available in the `paper <https://arxiv.org/abs/1910.00204>`_. 
+
 
 -----------------
 How to use TriMap
@@ -44,8 +45,7 @@ To calculate the global score, do:
 Parameters
 -----------------
 
-Unlike other dimensionality reduction method, TriMap only has a few parameters
-to tune:
+The list of parameters is given blow:
 
  -  ``n_inliers``: Number of nearest neighbors for forming the nearest neighbor triplets (default = 10).
 
@@ -53,7 +53,9 @@ to tune:
 
  -  ``n_random``: Number of random triplets per point (default = 5).
 
- -  ``weight_adj``: Adjust weights for extreme outliers using a log-transformation (default = 500.0).
+ -  ``distance``: Distance measure ('euclidean' (default), 'manhattan', 'angular', 'hamming')
+
+ -  ``weight_adj``: The value of gamma for the log-transformation (default = 500.0).
 
  -  ``lr``: Learning rate (default = 1000.0).
 
@@ -62,7 +64,7 @@ to tune:
 The other parameters include:
 
 
- -  ``fast_trimap``: Use only ANNOY for nearest-neighbor search (default = True).
+ -  ``apply_pca``: Reduce the number of dimensions of the data to 100 if necessary before applying the nearest-neighbor search (default = True).
 
  -  ``opt_method``: Optimization method {'sd' (steepest descent), 'momentum' (GD with momentum), 'dbd' (delta-bar-delta, default)}.
 
@@ -79,17 +81,19 @@ An example of adjusting these parameters:
 
     digits = load_digits()
 
-    embedding = trimap.TRIMAP(n_inliers=10,
-                              n_outliers=5,
-                              n_random=5).fit_transform(digits.data)
+    embedding = trimap.TRIMAP(n_inliers=20,
+                              n_outliers=10,
+                              n_random=10,
+                              weight_adj=1000.0).fit_transform(digits.data)
 
-The nearest-neighbor calculation is performed by default using  `ANNOY <https://github.com/spotify/annoy>`_. For more accurate results, the first 5 nearest-neighbors of each point can be calculated using ``sklearn.neighbors.NearestNeighbors`` and the results can be combined with those calculated using ANNOY. However, this may significantly increase the runtime. The ``fast_trimap (default = True)`` argument controls this property. For more accurate results, set ``fast_trimap = False``.
+The nearest-neighbor calculation is performed using  `ANNOY <https://github.com/spotify/annoy>`_. 
+
 
 --------
 Examples
 --------
 
-The following are some results on real-world datasets. The values of nearest-neighbor accuracy and global score are shown as a pair (NN, GS) on top of each figure. For more results, please refer to our paper.
+The following are some of the results on real-world datasets. The values of nearest-neighbor accuracy and global score are shown as a pair (NN, GS) on top of each figure. For more results, please refer to our `paper <https://arxiv.org/abs/1910.00204>`_.
 
 USPS Handwritten Digits (*n = 11,000, d = 256*)
 
@@ -126,7 +130,7 @@ Runtime of t-SNE, LargeVis, UMAP, and TriMap in the hh:mm:ss format on a single 
 
 .. image:: results/runtime.png
     :alt: Runtime of TriMap compared to other methods
-    
+
 
 ----------
 Installing
@@ -191,6 +195,7 @@ Install the package
 
     python setup.py install
 
+
 ------------------------
 Support and Contribution
 ------------------------
@@ -200,6 +205,23 @@ are highly appreciated. Please feel free contact me at: eamid@ucsc.edu. If you w
 like to contribute to the code, please `fork the project <https://github.com/eamid/trimap/issues#fork-destination-box>`_
 and send me a pull request.
 
+
+--------
+Citation
+--------
+
+If you use TriMap in your publications, please cite our current reference on arXiv:
+
+::
+
+   @article{2019TRIMAP,
+        author = {{Amid}, E. and {Warmuth}, M. K.},
+        title = "{TriMap: Large-scale Dimensionality Reduction Using Triplets}",
+        journal = {ArXiv e-prints},
+        archivePrefix = "arXiv",
+        eprint = {1910.00204},
+        year = 2019,
+   }
 
 
 -------
