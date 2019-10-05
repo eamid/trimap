@@ -63,6 +63,7 @@ The list of parameters is given blow:
  
 The other parameters include:
 
+ -  ``knn_tuple``: Use the pre-computed nearest-neighbors information in form of a tuple (knn_nbrs, knn_distances) (default = None)
 
  -  ``apply_pca``: Reduce the number of dimensions of the data to 100 if necessary before applying the nearest-neighbor search (default = True).
 

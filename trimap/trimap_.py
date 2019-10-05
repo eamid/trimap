@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 
@@ -126,7 +126,7 @@ def rejection_sample(n_samples, max_int, rejects):
 
 
 @numba.njit('i4[:,:](f4[:,:],i4[:,:],i4,i4)', parallel=True, nogil=True)
-def sample_knn_triplets(P, nbrs, n_inlier, n_outlier):
+def sample_knn_triplets(P, nbrs, n_inliers, n_outliers):
     """
     Sample nearest neighbors triplets based on the similarity values given in P
 
@@ -139,9 +139,9 @@ def sample_knn_triplets(P, nbrs, n_inlier, n_outlier):
     P: Matrix of pairwise similarities between each point and its neighbors 
         given in matrix nbrs
 
-    n_inlier: Number of inlier points
+    n_inliers: Number of inlier points
 
-    n_outlier: Number of outlier points
+    n_outliers: Number of outlier points
 
     Output
     ------
@@ -149,14 +149,14 @@ def sample_knn_triplets(P, nbrs, n_inlier, n_outlier):
     triplets: Sampled triplets
     """
     n, n_neighbors = nbrs.shape
-    triplets = np.empty((n * n_inlier * n_outlier, 3), dtype=np.int32)
+    triplets = np.empty((n * n_inliers * n_outliers, 3), dtype=np.int32)
     for i in numba.prange(n):
         sort_indices = np.argsort(-P[i])
-        for j in numba.prange(n_inlier):
+        for j in numba.prange(n_inliers):
             sim = nbrs[i][sort_indices[j+1]]
-            samples = rejection_sample(n_outlier, n, sort_indices[:j+2])
-            for k in numba.prange(n_outlier):
-                index = i * n_inlier * n_outlier + j * n_outlier + k
+            samples = rejection_sample(n_outliers, n, sort_indices[:j+2])
+            for k in numba.prange(n_outliers):
+                index = i * n_inliers * n_outliers + j * n_outliers + k
                 out = samples[k]
                 triplets[index][0] = i
                 triplets[index][1] = sim
@@ -213,14 +213,14 @@ def sample_random_triplets(X, n_random, sig, distance_index):
 
 
 @numba.njit('f4[:,:](f4[:,:],f4[:],i4[:,:])', parallel=True, nogil=True)
-def find_p(distances, sig, nbrs):
+def find_p(knn_distances, sig, nbrs):
     """
     Calculates the similarity matrix P
 
     Input
     ------
 
-    distances: Matrix of pairwise distances
+    knn_distances: Matrix of pairwise knn distances
 
     sig: Scaling factor for the distances
 
@@ -231,16 +231,16 @@ def find_p(distances, sig, nbrs):
 
     P: Pairwise similarity matrix
     """
-    n, n_neighbors = distances.shape
+    n, n_neighbors = knn_distances.shape
     P = np.zeros((n,n_neighbors), dtype=np.float32)
     for i in numba.prange(n):
         for j in numba.prange(n_neighbors):
-            P[i][j] = np.exp(-distances[i][j]**2/sig[i]/sig[nbrs[i][j]])
+            P[i][j] = np.exp(-knn_distances[i][j]**2/sig[i]/sig[nbrs[i][j]])
     return P
 
 
 @numba.njit('f4[:](i4[:,:],f4[:,:],i4[:,:],f4[:],f4[:])', parallel=True, nogil=True)
-def find_weights(triplets, P, nbrs, distances, sig):
+def find_weights(triplets, P, nbrs, outlier_distances, sig):
     """
     Calculates the weights for the sampled nearest neighbors triplets
 
@@ -253,7 +253,7 @@ def find_weights(triplets, P, nbrs, distances, sig):
 
     nbrs: Nearest neighbors
 
-    distances: Matrix of pairwise distances
+    outlier_distances: Matrix of pairwise outlier distances
 
     sig: Scaling factor for the distances
 
@@ -270,13 +270,13 @@ def find_weights(triplets, P, nbrs, distances, sig):
         while(nbrs[i][sim] != triplets[t][1]):
             sim += 1
         p_sim = P[i][sim]
-        p_out = np.exp(-distances[t]**2/(sig[i] * sig[triplets[t][2]]))
+        p_out = np.exp(-outlier_distances[t]**2/(sig[i] * sig[triplets[t][2]]))
         if p_out < 1e-20:
             p_out = 1e-20
         weights[t] = p_sim/p_out
     return weights
 
-def generate_triplets(X, n_inlier, n_outlier, n_random, distance='euclidean', apply_pca=True, weight_adj = True, verbose = True):
+def generate_triplets(X, n_inliers, n_outliers, n_random, distance='euclidean', apply_pca=True, weight_adj=500.0, verbose=True):
     distance_dict = {'euclidean':0, 'manhattan':1, 'angular':2, 'hamming':3}
     distance_index = distance_dict[distance]
     n, dim = X.shape
@@ -285,32 +285,65 @@ def generate_triplets(X, n_inlier, n_outlier, n_random, distance='euclidean', ap
         dim = 100
         if verbose:
             print("applied PCA")
-    n_extra = min(max(n_inlier, 50),n)
-    # n_extra = n_inlier + 1
+    n_extra = min(max(n_inliers, 50),n)
+    # n_extra = n_inliers + 1
     tree = AnnoyIndex(dim, metric=distance)
     for i in range(n):
         tree.add_item(i, X[i,:])
     tree.build(20)
     nbrs = np.empty((n,n_extra), dtype=np.int32)
-    distances = np.empty((n,n_extra), dtype=np.float32)
+    knn_distances = np.empty((n,n_extra), dtype=np.float32)
     dij = np.empty(n_extra, dtype=np.float32)
     for i in range(n):
         nbrs[i,:] = tree.get_nns_by_item(i, n_extra)
         for j in range(n_extra):
-            distances[i,j] = tree.get_distance(i, nbrs[i,j])
-        sort_indices = np.argsort(distances[i,:])
+            knn_distances[i,j] = tree.get_distance(i, nbrs[i,j])
+        sort_indices = np.argsort(knn_distances[i,:])
         nbrs[i,:] = nbrs[i,sort_indices]
-        distances[i,:] = distances[i,sort_indices]
+        knn_distances[i,:] = knn_distances[i,sort_indices]
     if verbose:
         print("found nearest neighbors")
-    sig = np.maximum(np.mean(distances[:, 3:6], axis=1), 1e-10) # scale parameter
-    P = find_p(distances, sig, nbrs)
-    triplets = sample_knn_triplets(P, nbrs, n_inlier, n_outlier)
+    sig = np.maximum(np.mean(knn_distances[:, 3:6], axis=1), 1e-10) # scale parameter
+    P = find_p(knn_distances, sig, nbrs)
+    triplets = sample_knn_triplets(P, nbrs, n_inliers, n_outliers)
     n_triplets = triplets.shape[0]
-    outlier_dist = np.empty(n_triplets, dtype=np.float32)
+    outlier_distances = np.empty(n_triplets, dtype=np.float32)
     for t in range(n_triplets):
-        outlier_dist[t] = calculate_dist(X[triplets[t,0],:], X[triplets[t,2],:], distance_index)
-    weights = find_weights(triplets, P, nbrs, outlier_dist, sig)
+        outlier_distances[t] = calculate_dist(X[triplets[t,0],:], X[triplets[t,2],:], distance_index)
+    weights = find_weights(triplets, P, nbrs, outlier_distances, sig)
+    if n_random > 0:
+        rand_triplets = sample_random_triplets(X, n_random, sig, distance_index)
+        rand_weights = rand_triplets[:,-1]
+        rand_triplets = rand_triplets[:,:-1].astype(np.int32)
+        triplets = np.vstack((triplets, rand_triplets))
+        weights = np.hstack((weights, rand_weights))
+    weights[np.isnan(weights)] = 0.0
+    weights /= np.max(weights)
+    weights += 0.0001
+    if weight_adj:
+        if not isinstance(weight_adj, (int, float)):
+            weight_adj = 500.0
+        weights = np.log(1 + weight_adj * weights)
+        weights /= np.max(weights)
+    return (triplets, weights)
+
+
+def generate_triplets_known_knn(X, knn_nbrs, knn_distances, n_inliers, n_outliers, n_random, distance='euclidean', weight_adj=500.0, verbose=True):
+    distance_dict = {'euclidean':0, 'manhattan':1, 'angular':2, 'hamming':3}
+    distance_index = distance_dict[distance]
+    # check whether the first nn of each point is itself
+    # TODO(eamid): use index shifting instead
+    if knn_nbrs[0,0] != 0:
+        knn_nbrs = np.hstack((np.array(range(knn_nbrs.shape[0]))[:, np.newaxis], knn_nbrs)).astype(np.int32)
+        knn_distances = np.hstack((np.zeros((knn_distances.shape[0], 1)), knn_distances)).astype(np.float32)
+    sig = np.maximum(np.mean(knn_distances[:, 3:6], axis=1), 1e-10) # scale parameter
+    P = find_p(knn_distances, sig, knn_nbrs)
+    triplets = sample_knn_triplets(P, knn_nbrs, n_inliers, n_outliers)
+    n_triplets = triplets.shape[0]
+    outlier_distances = np.empty(n_triplets, dtype=np.float32)
+    for t in range(n_triplets):
+        outlier_distances[t] = calculate_dist(X[triplets[t,0],:], X[triplets[t,2],:], distance_index)
+    weights = find_weights(triplets, P, knn_nbrs, outlier_distances, sig)
     if n_random > 0:
         rand_triplets = sample_random_triplets(X, n_random, sig, distance_index)
         rand_weights = rand_triplets[:,-1]
@@ -360,7 +393,7 @@ def update_embedding_dbd(Y, grad, vel, gain, lr, iter_num):
             Y[i][d] += vel[i][d]
 
 @numba.njit('f4[:,:](f4[:,:],i4,i4,i4[:,:],f4[:])', parallel=True, nogil=True)
-def trimap_grad(Y, n_inlier, n_outlier, triplets, weights):
+def trimap_grad(Y, n_inliers, n_outliers, triplets, weights):
     n, dim = Y.shape
     n_triplets = triplets.shape[0]
     grad = np.zeros((n, dim), dtype=np.float32)
@@ -368,12 +401,12 @@ def trimap_grad(Y, n_inlier, n_outlier, triplets, weights):
     y_ik = np.empty(dim, dtype=np.float32)
     n_viol = 0.0
     loss = 0.0
-    n_knn_triplets = n * n_inlier * n_outlier
+    n_knn_triplets = n * n_inliers * n_outliers
     for t in range(n_triplets):
         i = triplets[t,0]
         j = triplets[t,1]
         k = triplets[t,2]
-        if (t % n_outlier) == 0 or (t >= n_knn_triplets):  # update y_ij, y_ik, d_ij, d_ik
+        if (t % n_outliers) == 0 or (t >= n_knn_triplets):  # update y_ij, y_ik, d_ij, d_ik
             d_ij = 1.0
             d_ik = 1.0
             for d in range(dim):
@@ -401,7 +434,7 @@ def trimap_grad(Y, n_inlier, n_outlier, triplets, weights):
     last[1] = n_viol
     return np.vstack((grad, last))  
     
-def trimap(X, triplets, weights, n_dims, n_inliers, n_outliers, n_random, distance, lr, n_iters, Yinit,
+def trimap(X, triplets, weights, knn_tuple, n_dims, n_inliers, n_outliers, n_random, distance, lr, n_iters, Yinit,
  weight_adj, apply_pca, opt_method, verbose, return_seq):
     """
     Apply TriMap.
@@ -415,15 +448,23 @@ def trimap(X, triplets, weights, n_dims, n_inliers, n_outliers, n_random, distan
     if verbose:
         print("running TriMap on %d points with dimension %d" % (n, dim))
     if triplets[0] is None:
-        if verbose:
-            print("pre-processing")
-        if distance != 'hamming':
-            X -= np.min(X)
-            X /= np.max(X)
-            X -= np.mean(X,axis=0)
-        triplets, weights = generate_triplets(X, n_inliers, n_outliers, n_random, distance, apply_pca, weight_adj, verbose)
-        if verbose:
-            print("sampled triplets")
+        if knn_tuple is None:
+            if verbose:
+                print("pre-processing")
+            if distance != 'hamming':
+                X -= np.min(X)
+                X /= np.max(X)
+                X -= np.mean(X,axis=0)
+            triplets, weights = generate_triplets(X, n_inliers, n_outliers, n_random, distance, apply_pca, weight_adj, verbose)
+            if verbose:
+                print("sampled triplets")
+        else:
+            if verbose:
+                print("using pre-computed knn")
+            knn_nbrs, knn_distances = knn_tuple
+            knn_nbrs = knn_nbrs.astype(np.int32)
+            knn_distances = knn_distances.astype(np.float32)
+            triplets, weights = generate_triplets_known_knn(X, knn_nbrs, knn_distances, n_inliers, n_outliers, n_random, distance, weight_adj, verbose)
     else:
         if verbose:
             print("using stored triplets")
@@ -510,6 +551,8 @@ class TRIMAP(BaseEstimator):
 
     n_iters: Number of iterations (default = 400)
 
+    knn_tuple: Use the pre-computed nearest-neighbors information in form of a tuple (knn_nbrs, knn_distances) (default = None)
+
     apply_pca: Apply PCA to reduce the dimensions to 100 if necessary before the nearest-neighbor calculation (default = True)
 
     opt_method: Optimization method ('sd': steepest descent,  'momentum': GD with momentum, 'dbd': GD with momentum delta-bar-delta (default))
@@ -531,6 +574,7 @@ class TRIMAP(BaseEstimator):
                  n_iters=400,
                  triplets=None,
                  weights=None,
+                 knn_tuple=None,
                  verbose=True,
                  weight_adj=500.0,
                  apply_pca=True,
@@ -546,6 +590,7 @@ class TRIMAP(BaseEstimator):
         self.n_iters = n_iters
         self.triplets = triplets,
         self.weights = weights
+        self.knn_tuple = knn_tuple
         self.weight_adj = weight_adj
         self.apply_pca = apply_pca
         self.opt_method = opt_method
@@ -586,7 +631,7 @@ class TRIMAP(BaseEstimator):
         X = X.astype(np.float32)
         
         self.embedding_, self.triplets, self.weights = trimap(X, self.triplets,
-            self.weights, self.n_dims, self.n_inliers, self.n_outliers, self.n_random, self.distance,
+            self.weights, self.knn_tuple, self.n_dims, self.n_inliers, self.n_outliers, self.n_random, self.distance,
             self.lr, self.n_iters, init, self.weight_adj, self.apply_pca, self.opt_method, self.verbose, self.return_seq)
         return self
 
