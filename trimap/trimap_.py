@@ -276,15 +276,10 @@ def find_weights(triplets, P, nbrs, outlier_distances, sig):
         weights[t] = p_sim/p_out
     return weights
 
-def generate_triplets(X, n_inliers, n_outliers, n_random, distance='euclidean', apply_pca=True, weight_adj=500.0, verbose=True):
+def generate_triplets(X, n_inliers, n_outliers, n_random, distance='euclidean', weight_adj=500.0, verbose=True):
     distance_dict = {'euclidean':0, 'manhattan':1, 'angular':2, 'hamming':3}
     distance_index = distance_dict[distance]
     n, dim = X.shape
-    if dim > 100 and apply_pca:
-        X = TruncatedSVD(n_components=100, random_state=0).fit_transform(X)
-        dim = 100
-        if verbose:
-            print("applied PCA")
     n_extra = min(max(n_inliers, 50),n)
     # n_extra = n_inliers + 1
     tree = AnnoyIndex(dim, metric=distance)
@@ -447,15 +442,24 @@ def trimap(X, triplets, weights, knn_tuple, n_dims, n_inliers, n_outliers, n_ran
     n, dim = X.shape
     if verbose:
         print("running TriMap on %d points with dimension %d" % (n, dim))
+    pca_solution = False
     if triplets[0] is None:
         if knn_tuple is None:
             if verbose:
                 print("pre-processing")
             if distance != 'hamming':
-                X -= np.min(X)
-                X /= np.max(X)
-                X -= np.mean(X,axis=0)
-            triplets, weights = generate_triplets(X, n_inliers, n_outliers, n_random, distance, apply_pca, weight_adj, verbose)
+                if dim > 100 and apply_pca:
+                    X -= np.mean(X,axis=0)
+                    X = TruncatedSVD(n_components=100, random_state=0).fit_transform(X)
+                    dim = 100
+                    pca_solution = True
+                    if verbose:
+                        print("applied PCA")
+                else:
+                    X -= np.min(X)
+                    X /= np.max(X)
+                    X -= np.mean(X,axis=0)
+            triplets, weights = generate_triplets(X, n_inliers, n_outliers, n_random, distance, weight_adj, verbose)
             if verbose:
                 print("sampled triplets")
         else:
@@ -470,7 +474,10 @@ def trimap(X, triplets, weights, knn_tuple, n_dims, n_inliers, n_outliers, n_ran
             print("using stored triplets")
 
     if Yinit is None or Yinit is 'pca':
-        Y = 0.01 * PCA(n_components = n_dims).fit_transform(X).astype(np.float32)
+        if pca_solution:
+            Y = 0.01 * X[:,:n_dims]
+        else:
+            Y = 0.01 * PCA(n_components = n_dims).fit_transform(X).astype(np.float32)
     elif Yinit is 'random':
         Y = np.random.normal(size=[n, n_dims]).astype(np.float32) * 0.0001
     else:
@@ -662,13 +669,19 @@ class TRIMAP(BaseEstimator):
             print("pre-processing")
         X = X.astype(np.float32)
         if self.distance != 'hamming':
-            X -= np.min(X)
-            X /= np.max(X)
-            X -= np.mean(X,axis=0)
-        self.triplets, self.weights = generate_triplets(X, self.n_inliers, self.n_outliers, self.n_random, self.distance, self.apply_pca, self.weight_adj, self.verbose)
+            if X.shape[1] > 100 and self.apply_pca:
+                X -= np.mean(X,axis=0)
+                X = TruncatedSVD(n_components=100, random_state=0).fit_transform(X)
+                if self.verbose:
+                    print("applied PCA")
+            else:
+                X -= np.min(X)
+                X /= np.max(X)
+                X -= np.mean(X,axis=0)
+        self.triplets, self.weights = generate_triplets(X, self.n_inliers, self.n_outliers, self.n_random, self.distance, self.weight_adj, self.verbose)
         if self.verbose:
             print("sampled triplets")
-        
+            
         return self
     
     def del_triplets(self):
