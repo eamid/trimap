@@ -14,6 +14,11 @@ other dimensionality reduction methods such t-SNE, LargeVis, and UMAP. The globa
 structure includes relative distances of the clusters, multiple scales in 
 the data, and the existence of possible outliers. We define a global score to quantify the quality of an embedding in reflecting the global structure of the data.
 
+CIFAR-10 dataset (test set) passed through a CNN (*n = 10,000, d = 1024*)
+
+.. image:: results/cifar10.png
+    :alt: Visualizations of the CIFAR-10 dataset
+
 The following implementation is in Python. Further details and more experimental results are available in the `paper <https://arxiv.org/abs/1910.00204>`_. 
 
 
