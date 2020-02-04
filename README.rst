@@ -14,7 +14,7 @@ other dimensionality reduction methods such t-SNE, LargeVis, and UMAP. The globa
 structure includes relative distances of the clusters, multiple scales in 
 the data, and the existence of possible outliers. We define a global score to quantify the quality of an embedding in reflecting the global structure of the data.
 
-CIFAR-10 dataset (test set) passed through a CNN (*n = 10,000, d = 1024*)
+CIFAR-10 dataset (test set) passed through a CNN (*n = 10,000, d = 1024*): Notice the semantic structure unveiled by TriMap.
 
 .. image:: results/cifar10.png
     :alt: Visualizations of the CIFAR-10 dataset
@@ -37,6 +37,18 @@ TriMap with the default parameters, simply do:
     digits = load_digits()
 
     embedding = trimap.TRIMAP().fit_transform(digits.data)
+
+To find the embedding using a precomputed pairwise distance matrix D, pass D as input and set use_dist_matrix to True:
+
+.. code:: python
+
+    embedding = trimap.TRIMAP(use_dist_matrix=True).fit_transform(D)
+
+You can also pass the precomputed k-nearest neighbors and their corresponding distances as a tuple (knn_nbrs, knn_distances). Note that the rows must be in order, starting from point 0 to n-1. This feature also requires X to compute the embedding
+
+.. code:: python
+
+    embedding = trimap.TRIMAP(knn_tuple=(knn_nbrs, knn_distances)).fit_transform(X)
 
 To calculate the global score, do:
 
@@ -68,7 +80,9 @@ The list of parameters is given blow:
  
 The other parameters include:
 
- -  ``knn_tuple``: Use the pre-computed nearest-neighbors information in form of a tuple (knn_nbrs, knn_distances) (default = None)
+ -  ``knn_tuple``: Use the precomputed nearest-neighbors information in form of a tuple (knn_nbrs, knn_distances) (default = None)
+
+ -  ``use_dist_matrix``: Use the precomputed pairwise distance matrix (default = False)
 
  -  ``apply_pca``: Reduce the number of dimensions of the data to 100 if necessary before applying the nearest-neighbor search (default = True).
 

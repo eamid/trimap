@@ -10,7 +10,6 @@ TriMap: Large-scale Dimensionality Reduction Using Triplet Constraints
 from sklearn.base import BaseEstimator
 import numba
 from annoy import AnnoyIndex
-from sklearn.neighbors import NearestNeighbors as knn
 from sklearn.decomposition import TruncatedSVD
 from sklearn.decomposition import PCA
 import numpy as np
@@ -172,7 +171,7 @@ def sample_random_triplets(X, n_random, sig, distance_index):
     Input
     ------
 
-    X: Instance matrix
+    X: Instance matrix or pairwise distances
 
     n_random: Number of random triplets per point
 
@@ -195,14 +194,18 @@ def sample_random_triplets(X, n_random, sig, distance_index):
             out = np.random.choice(n)
             while out == i or out == sim:
                 out = np.random.choice(n)
-            p_sim = np.exp(
-                -calculate_dist(X[i], X[sim], distance_index) ** 2 / (sig[i] * sig[sim])
-            )
+            if distance_index == -1:
+                d_sim = X[i, sim]
+            else:
+                d_sim = calculate_dist(X[i], X[sim], distance_index)
+            p_sim = np.exp(-d_sim ** 2 / (sig[i] * sig[sim]))
             if p_sim < 1e-20:
                 p_sim = 1e-20
-            p_out = np.exp(
-                -calculate_dist(X[i], X[out], distance_index) ** 2 / (sig[i] * sig[out])
-            )
+            if distance_index == -1:
+                d_out = X[i, out]
+            else:
+                d_out = calculate_dist(X[i], X[out], distance_index)
+            p_out = np.exp(-d_out ** 2 / (sig[i] * sig[out]))
             if p_out < 1e-20:
                 p_out = 1e-20
             if p_sim < p_out:
@@ -339,11 +342,21 @@ def generate_triplets_known_knn(
     n_inliers,
     n_outliers,
     n_random,
+    pairwise_dist_matrix=None,
     distance="euclidean",
     weight_adj=500.0,
     verbose=True,
 ):
-    distance_dict = {"euclidean": 0, "manhattan": 1, "angular": 2, "hamming": 3}
+    all_distances = pairwise_dist_matrix is not None
+    if all_distances:
+        distance = "other"
+    distance_dict = {
+        "euclidean": 0,
+        "manhattan": 1,
+        "angular": 2,
+        "hamming": 3,
+        "other": -1,
+    }
     distance_index = distance_dict[distance]
     # check whether the first nn of each point is itself
     # TODO(eamid): use index shifting instead
@@ -360,12 +373,20 @@ def generate_triplets_known_knn(
     n_triplets = triplets.shape[0]
     outlier_distances = np.empty(n_triplets, dtype=np.float32)
     for t in range(n_triplets):
-        outlier_distances[t] = calculate_dist(
-            X[triplets[t, 0], :], X[triplets[t, 2], :], distance_index
-        )
+        if all_distances:
+            outlier_distances[t] = pairwise_dist_matrix[triplets[t, 0], triplets[t, 2]]
+        else:
+            outlier_distances[t] = calculate_dist(
+                X[triplets[t, 0], :], X[triplets[t, 2], :], distance_index
+            )
     weights = find_weights(triplets, P, knn_nbrs, outlier_distances, sig)
     if n_random > 0:
-        rand_triplets = sample_random_triplets(X, n_random, sig, distance_index)
+        if all_distances:
+            rand_triplets = sample_random_triplets(
+                pairwise_dist_matrix, n_random, sig, distance_index
+            )
+        else:
+            rand_triplets = sample_random_triplets(X, n_random, sig, distance_index)
         rand_weights = rand_triplets[:, -1]
         rand_triplets = rand_triplets[:, :-1].astype(np.int32)
         triplets = np.vstack((triplets, rand_triplets))
@@ -468,6 +489,7 @@ def trimap(
     triplets,
     weights,
     knn_tuple,
+    use_dist_matrix,
     n_dims,
     n_inliers,
     n_outliers,
@@ -494,8 +516,54 @@ def trimap(
     if verbose:
         print("running TriMap on %d points with dimension %d" % (n, dim))
     pca_solution = False
-    if triplets[0] is None:
-        if knn_tuple is None:
+    if triplets is None:
+        if knn_tuple is not None:
+            if verbose:
+                print("using pre-computed knn")
+            knn_nbrs, knn_distances = knn_tuple
+            knn_nbrs = knn_nbrs.astype(np.int32)
+            knn_distances = knn_distances.astype(np.float32)
+            triplets, weights = generate_triplets_known_knn(
+                X,
+                knn_nbrs,
+                knn_distances,
+                n_inliers,
+                n_outliers,
+                n_random,
+                None,
+                distance,
+                weight_adj,
+                verbose,
+            )
+        elif use_dist_matrix:
+            if verbose:
+                print("using distance matrix")
+            pairwise_dist_matrix = X
+            pairwise_dist_matrix = pairwise_dist_matrix.astype(np.float32)
+            n_extra = min(n_inliers + 50, n)
+            knn_nbrs = np.zeros((n, n_extra), dtype=np.int32)
+            knn_distances = np.zeros((n, n_extra), dtype=np.float32)
+            for nn in range(n):
+                bottom_k_indices = np.argpartition(
+                    pairwise_dist_matrix[nn, :], n_extra
+                )[:n_extra]
+                bottom_k_distances = pairwise_dist_matrix[nn, bottom_k_indices]
+                sort_indices = np.argsort(bottom_k_distances)
+                knn_nbrs[nn, :] = bottom_k_indices[sort_indices]
+                knn_distances[nn, :] = bottom_k_distances[sort_indices]
+            triplets, weights = generate_triplets_known_knn(
+                X,
+                knn_nbrs,
+                knn_distances,
+                n_inliers,
+                n_outliers,
+                n_random,
+                pairwise_dist_matrix,
+                distance,
+                weight_adj,
+                verbose,
+            )
+        else:
             if verbose:
                 print("pre-processing")
             if distance != "hamming":
@@ -515,23 +583,6 @@ def trimap(
             )
             if verbose:
                 print("sampled triplets")
-        else:
-            if verbose:
-                print("using pre-computed knn")
-            knn_nbrs, knn_distances = knn_tuple
-            knn_nbrs = knn_nbrs.astype(np.int32)
-            knn_distances = knn_distances.astype(np.float32)
-            triplets, weights = generate_triplets_known_knn(
-                X,
-                knn_nbrs,
-                knn_distances,
-                n_inliers,
-                n_outliers,
-                n_random,
-                distance,
-                weight_adj,
-                verbose,
-            )
     else:
         if verbose:
             print("using stored triplets")
@@ -607,7 +658,7 @@ class TRIMAP(BaseEstimator):
     """
     Dimensionality Reduction Using Triplet Constraints
 
-    Find a low-dimensional repersentation of the data by satisfying the sampled
+    Find a low-dimensional representation of the data by satisfying the sampled
     triplet constraints from the high-dimensional features.
 
     Input
@@ -628,8 +679,10 @@ class TRIMAP(BaseEstimator):
 
     n_iters: Number of iterations (default = 400)
 
+    use_dist_matrix: X is the pairwise distances between points (default = False)
+
     knn_tuple: Use the pre-computed nearest-neighbors information in form of a
-    tuple (knn_nbrs, knn_distances) (default = None)
+    tuple (knn_nbrs, knn_distances), needs also X to compute the embedding (default = None)
 
     apply_pca: Apply PCA to reduce the dimensions to 100 if necessary before the
     nearest-neighbor calculation (default = True)
@@ -657,6 +710,7 @@ class TRIMAP(BaseEstimator):
         n_iters=400,
         triplets=None,
         weights=None,
+        use_dist_matrix=False,
         knn_tuple=None,
         verbose=True,
         weight_adj=500.0,
@@ -671,8 +725,9 @@ class TRIMAP(BaseEstimator):
         self.distance = distance
         self.lr = lr
         self.n_iters = n_iters
-        self.triplets = triplets,
+        self.triplets = triplets
         self.weights = weights
+        self.use_dist_matrix = use_dist_matrix
         self.knn_tuple = knn_tuple
         self.weight_adj = weight_adj
         self.apply_pca = apply_pca
@@ -737,6 +792,7 @@ class TRIMAP(BaseEstimator):
             self.triplets,
             self.weights,
             self.knn_tuple,
+            self.use_dist_matrix,
             self.n_dims,
             self.n_inliers,
             self.n_outliers,
