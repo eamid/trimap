@@ -513,6 +513,7 @@ def trimap(
     if verbose:
         t = time.time()
     n, dim = X.shape
+    assert n_inliers < n - 1, "n_inliers must be less than (number of data points - 1)."
     if verbose:
         print("running TriMap on %d points with dimension %d" % (n, dim))
     pca_solution = False
@@ -747,12 +748,15 @@ class TRIMAP(BaseEstimator):
             )
         if self.lr <= 0:
             raise ValueError("The learning rate must be a positive value.")
+        if self.use_dist_matrix:
+            distance = "pre-computed"
+            self.distance = distance
         if self.distance == "hamming" and apply_pca:
             warnings.warn("apply_pca = True for Hamming distance.")
 
         if self.verbose:
             print(
-                "TRIMAP(n_inliers={}, n_outliers={}, n_random={}, distance={},"
+                "TRIMAP(n_inliers={}, n_outliers={}, n_random={}, distance={}, "
                 "lr={}, n_iters={}, weight_adj={}, apply_pca={}, opt_method={}, verbose={}, return_seq={})".format(
                     n_inliers,
                     n_outliers,
