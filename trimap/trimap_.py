@@ -153,7 +153,7 @@ def sample_knn_triplets(P, nbrs, n_inliers, n_outliers):
         sort_indices = np.argsort(-P[i])
         for j in numba.prange(n_inliers):
             sim = nbrs[i][sort_indices[j + 1]]
-            samples = rejection_sample(n_outliers, n, sort_indices[: j + 2])
+            samples = rejection_sample(n_outliers, n, nbrs[i][sort_indices[: j+2]])
             for k in numba.prange(n_outliers):
                 index = i * n_inliers * n_outliers + j * n_outliers + k
                 out = samples[k]
