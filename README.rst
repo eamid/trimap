@@ -64,6 +64,8 @@ Parameters
 
 The list of parameters is given blow:
 
+ -  ``n_dims``: Number of dimensions of the embedding (default = 2)
+
  -  ``n_inliers``: Number of nearest neighbors for forming the nearest neighbor triplets (default = 10).
 
  -  ``n_outliers``: Number of outliers for forming the nearest neighbor triplets (default = 5).
