@@ -237,9 +237,9 @@ If you use TriMap in your publications, please cite our current reference on arX
 ::
 
    @article{2019TRIMAP,
-        author = {{Amid}, E. and {Warmuth}, M. K.},
+        author = {{Amid}, Ehsan and {Warmuth}, Manfred K.},
         title = "{TriMap: Large-scale Dimensionality Reduction Using Triplets}",
-        journal = {ArXiv e-prints},
+        journal = {arXiv preprint arXiv:1910.00204},
         archivePrefix = "arXiv",
         eprint = {1910.00204},
         year = 2019,
