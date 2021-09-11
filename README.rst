@@ -165,6 +165,18 @@ Requirements:
 * numba
 * annoy
 
+**Installing annoy**
+
+If you are having trouble with installing `annoy` on macOS using the command:
+.. code:: bash
+
+    pip3 install annoy
+
+you can alternatively try:
+.. code:: bash
+
+    pip3 install git+https://github.com/sutao/annoy.git@master
+
 **Install Options**
 
 If you have all the requirements installed, you can use pip:
