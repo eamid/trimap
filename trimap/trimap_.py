@@ -588,12 +588,12 @@ def trimap(
         if verbose:
             print("using stored triplets")
 
-    if Yinit is None or Yinit is "pca":
+    if not Yinit or Yinit == "pca":
         if pca_solution:
             Y = 0.01 * X[:, :n_dims]
         else:
             Y = 0.01 * PCA(n_components=n_dims).fit_transform(X).astype(np.float32)
-    elif Yinit is "random":
+    elif Yinit == "random":
         Y = np.random.normal(size=[n, n_dims]).astype(np.float32) * 0.0001
     else:
         Y = Yinit.astype(np.float32)
