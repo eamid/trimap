@@ -3,12 +3,13 @@
 """
 
 TriMap: Large-scale Dimensionality Reduction Using Triplet Constraints
+Source: https://arxiv.org/pdf/1910.00204.pdf
 
 """
 
 
 from sklearn.base import BaseEstimator
-import numba
+from numba import njit, prange
 from annoy import AnnoyIndex
 from sklearn.decomposition import TruncatedSVD
 from sklearn.decomposition import PCA
@@ -18,69 +19,76 @@ import datetime
 import sys
 import warnings
 
+# default hyperparams
+_RAND_WEIGHT_SCALE = 0.1
+
+_INIT_PCA_SCALE = 0.01
+_INIT_RAND_SCALE = 0.0001
+
+_PCA_DIM = 100
+_NUM_TREES = 20
+_NUM_EXTRA_KNN = 50
+
+_FINAL_MOMENTUM = 0.8
+_INIT_MOMENTUM = 0.5
+_SWITCH_ITER_MOMENTUM = 250
+
+_MIN_GAIN = 0.01
+_DAMP_GAIN = 0.8
+_INCREASE_GAIN = 0.2
+
+_RETURN_EVERY = 10
+_DISP_ITER = 100
+
 if sys.version_info < (3,):
     range = xrange
 
-bold = "\033[1m"
-reset = "\033[0;0m"
+_BOLD = "\033[1m"
+_RESET = "\033[0;0m"
 
 
-@numba.njit("f4(f4[:])")
+@njit("f4(f4[:])")
 def l2_norm(x):
-    """
-    L2 norm of a vector.
-
-    """
+    """L2 norm of a vector."""
     result = 0.0
     for i in range(x.shape[0]):
         result += x[i] ** 2
     return np.sqrt(result)
 
 
-@numba.njit("f4(f4[:],f4[:])")
+@njit("f4(f4[:],f4[:])")
 def euclid_dist(x1, x2):
-    """
-    Euclidean distance between two vectors.
-
-    """
+    """Euclidean distance between two vectors."""
     result = 0.0
     for i in range(x1.shape[0]):
         result += (x1[i] - x2[i]) ** 2
     return np.sqrt(result)
 
 
-@numba.njit("f4(f4[:],f4[:])")
+@njit("f4(f4[:],f4[:])")
 def manhattan_dist(x1, x2):
-    """
-    Manhattan distance between two vectors.
-
-    """
+    """Manhattan distance between two vectors."""
     result = 0.0
     for i in range(x1.shape[0]):
         result += np.abs(x1[i] - x2[i])
     return result
 
 
-@numba.njit("f4(f4[:],f4[:])")
+@njit("f4(f4[:],f4[:])")
 def angular_dist(x1, x2):
-    """
-    Angular (i.e. cosine) distance between two vectors.
-
-    """
+    """Angular (i.e. cosine) distance between two vectors."""
     x1_norm = np.maximum(l2_norm(x1), 1e-20)
     x2_norm = np.maximum(l2_norm(x2), 1e-20)
     result = 0.0
     for i in range(x1.shape[0]):
         result += x1[i] * x2[i]
-    return np.sqrt(2.0 - 2.0 * result / x1_norm / x2_norm)
+    # angular is multiplied by a factor of 2.0 in annoy
+    return 2.0 * (1. - result / x1_norm / x2_norm)
 
 
-@numba.njit("f4(f4[:],f4[:])")
+@njit("f4(f4[:],f4[:])")
 def hamming_dist(x1, x2):
-    """
-    Hamming distance between two vectors.
-
-    """
+    """Hamming distance between two vectors."""
     result = 0.0
     for i in range(x1.shape[0]):
         if x1[i] != x2[i]:
@@ -88,7 +96,7 @@ def hamming_dist(x1, x2):
     return result
 
 
-@numba.njit()
+@njit()
 def calculate_dist(x1, x2, distance_index):
     if distance_index == 0:
         return euclid_dist(x1, x2)
@@ -100,9 +108,10 @@ def calculate_dist(x1, x2, distance_index):
         return hamming_dist(x1, x2)
 
 
-@numba.njit()
+@njit()
 def rejection_sample(n_samples, max_int, rejects):
-    """
+    """Rejection sampling.
+
     Samples "n_samples" integers from a given interval [0,max_int] while
     rejecting the values that are in the "rejects".
 
@@ -124,18 +133,17 @@ def rejection_sample(n_samples, max_int, rejects):
     return result
 
 
-@numba.njit("i4[:,:](f4[:,:],i4[:,:],i4,i4)", parallel=True, nogil=True)
+@njit("i4[:,:](f4[:,:],i4[:,:],i4,i4)", parallel=True, nogil=True)
 def sample_knn_triplets(P, nbrs, n_inliers, n_outliers):
-    """
-    Sample nearest neighbors triplets based on the similarity values given in P
+    """Sample nearest neighbors triplets based on the similarity values in P.
 
     Input
     ------
 
-    nbrs: Nearest neighbors indices for each point. The similarity values 
+    nbrs: Nearest neighbors indices for each point. The similarity values
         are given in matrix P. Row i corresponds to the i-th point.
 
-    P: Matrix of pairwise similarities between each point and its neighbors 
+    P: Matrix of pairwise similarities between each point and its neighbors
         given in matrix nbrs
 
     n_inliers: Number of inlier points
@@ -149,12 +157,12 @@ def sample_knn_triplets(P, nbrs, n_inliers, n_outliers):
     """
     n, n_neighbors = nbrs.shape
     triplets = np.empty((n * n_inliers * n_outliers, 3), dtype=np.int32)
-    for i in numba.prange(n):
+    for i in prange(n):
         sort_indices = np.argsort(-P[i])
-        for j in numba.prange(n_inliers):
+        for j in prange(n_inliers):
             sim = nbrs[i][sort_indices[j + 1]]
-            samples = rejection_sample(n_outliers, n, nbrs[i][sort_indices[: j+2]])
-            for k in numba.prange(n_outliers):
+            samples = rejection_sample(n_outliers, n, nbrs[i][sort_indices[: j + 2]])
+            for k in prange(n_outliers):
                 index = i * n_inliers * n_outliers + j * n_outliers + k
                 out = samples[k]
                 triplets[index][0] = i
@@ -163,10 +171,9 @@ def sample_knn_triplets(P, nbrs, n_inliers, n_outliers):
     return triplets
 
 
-@numba.njit("f4[:,:](f4[:,:],i4,f4[:],i4)", parallel=True, nogil=True)
+@njit("f4[:,:](f4[:,:],i4,f4[:],i4)", parallel=True, nogil=True)
 def sample_random_triplets(X, n_random, sig, distance_index):
-    """
-    Sample uniformly random triplets
+    """Sample uniformly random triplets.
 
     Input
     ------
@@ -186,8 +193,8 @@ def sample_random_triplets(X, n_random, sig, distance_index):
     """
     n = X.shape[0]
     rand_triplets = np.empty((n * n_random, 4), dtype=np.float32)
-    for i in numba.prange(n):
-        for j in numba.prange(n_random):
+    for i in prange(n):
+        for j in prange(n_random):
             sim = np.random.choice(n)
             while sim == i:
                 sim = np.random.choice(n)
@@ -198,30 +205,25 @@ def sample_random_triplets(X, n_random, sig, distance_index):
                 d_sim = X[i, sim]
             else:
                 d_sim = calculate_dist(X[i], X[sim], distance_index)
-            p_sim = np.exp(-d_sim ** 2 / (sig[i] * sig[sim]))
-            if p_sim < 1e-20:
-                p_sim = 1e-20
+            p_sim = -(d_sim**2) / (sig[i] * sig[sim])
             if distance_index == -1:
                 d_out = X[i, out]
             else:
                 d_out = calculate_dist(X[i], X[out], distance_index)
-            p_out = np.exp(-d_out ** 2 / (sig[i] * sig[out]))
-            if p_out < 1e-20:
-                p_out = 1e-20
+            p_out = -(d_out**2) / (sig[i] * sig[out])
             if p_sim < p_out:
                 sim, out = out, sim
                 p_sim, p_out = p_out, p_sim
             rand_triplets[i * n_random + j][0] = i
             rand_triplets[i * n_random + j][1] = sim
             rand_triplets[i * n_random + j][2] = out
-            rand_triplets[i * n_random + j][3] = p_sim / p_out
+            rand_triplets[i * n_random + j][3] = p_sim - p_out
     return rand_triplets
 
 
-@numba.njit("f4[:,:](f4[:,:],f4[:],i4[:,:])", parallel=True, nogil=True)
+@njit("f4[:,:](f4[:,:],f4[:],i4[:,:])", parallel=True, nogil=True)
 def find_p(knn_distances, sig, nbrs):
-    """
-    Calculates the similarity matrix P
+    """Calculates the similarity matrix P.
 
     Input
     ------
@@ -239,16 +241,15 @@ def find_p(knn_distances, sig, nbrs):
     """
     n, n_neighbors = knn_distances.shape
     P = np.zeros((n, n_neighbors), dtype=np.float32)
-    for i in numba.prange(n):
-        for j in numba.prange(n_neighbors):
-            P[i][j] = np.exp(-knn_distances[i][j] ** 2 / sig[i] / sig[nbrs[i][j]])
+    for i in prange(n):
+        for j in prange(n_neighbors):
+            P[i][j] = -knn_distances[i][j] ** 2 / (sig[i] * sig[nbrs[i][j]])
     return P
 
 
-@numba.njit("f4[:](i4[:,:],f4[:,:],i4[:,:],f4[:],f4[:])", parallel=True, nogil=True)
+@njit("f4[:](i4[:,:],f4[:,:],i4[:,:],f4[:],f4[:])", parallel=True, nogil=True)
 def find_weights(triplets, P, nbrs, outlier_distances, sig):
-    """
-    Calculates the weights for the sampled nearest neighbors triplets
+    """Calculates the weights for the sampled nearest neighbors triplets.
 
     Input
     ------
@@ -270,16 +271,14 @@ def find_weights(triplets, P, nbrs, outlier_distances, sig):
     """
     n_triplets = triplets.shape[0]
     weights = np.empty(n_triplets, dtype=np.float32)
-    for t in numba.prange(n_triplets):
+    for t in prange(n_triplets):
         i = triplets[t][0]
         sim = 0
         while nbrs[i][sim] != triplets[t][1]:
             sim += 1
         p_sim = P[i][sim]
-        p_out = np.exp(-outlier_distances[t] ** 2 / (sig[i] * sig[triplets[t][2]]))
-        if p_out < 1e-20:
-            p_out = 1e-20
-        weights[t] = p_sim / p_out
+        p_out = -outlier_distances[t] ** 2 / (sig[i] * sig[triplets[t][2]])
+        weights[t] = p_sim - p_out
     return weights
 
 
@@ -289,17 +288,16 @@ def generate_triplets(
     n_outliers,
     n_random,
     distance="euclidean",
-    weight_adj=500.0,
     verbose=True,
 ):
     distance_dict = {"euclidean": 0, "manhattan": 1, "angular": 2, "hamming": 3}
     distance_index = distance_dict[distance]
     n, dim = X.shape
-    n_extra = min(n_inliers + 50, n)
+    n_extra = min(n_inliers + _NUM_EXTRA_KNN, n)
     tree = AnnoyIndex(dim, metric=distance)
     for i in range(n):
         tree.add_item(i, X[i, :])
-    tree.build(20)
+    tree.build(_NUM_TREES)
     nbrs = np.empty((n, n_extra), dtype=np.int32)
     knn_distances = np.empty((n, n_extra), dtype=np.float32)
     for i in range(n):
@@ -323,15 +321,9 @@ def generate_triplets(
         rand_weights = rand_triplets[:, -1]
         rand_triplets = rand_triplets[:, :-1].astype(np.int32)
         triplets = np.vstack((triplets, rand_triplets))
-        weights = np.hstack((weights, rand_weights))
+        weights = np.hstack((weights, _RAND_WEIGHT_SCALE * rand_weights))
     weights[np.isnan(weights)] = 0.0
-    weights /= np.max(weights)
-    weights += 0.0001
-    if weight_adj:
-        if not isinstance(weight_adj, (int, float)):
-            weight_adj = 500.0
-        weights = np.log(1 + weight_adj * weights)
-        weights /= np.max(weights)
+    weights -= np.min(weights)
     return (triplets, weights)
 
 
@@ -344,7 +336,6 @@ def generate_triplets_known_knn(
     n_random,
     pairwise_dist_matrix=None,
     distance="euclidean",
-    weight_adj=500.0,
     verbose=True,
 ):
     all_distances = pairwise_dist_matrix is not None
@@ -392,58 +383,46 @@ def generate_triplets_known_knn(
         triplets = np.vstack((triplets, rand_triplets))
         weights = np.hstack((weights, rand_weights))
     weights[np.isnan(weights)] = 0.0
-    weights /= np.max(weights)
-    weights += 0.0001
-    if weight_adj:
-        if not isinstance(weight_adj, (int, float)):
-            weight_adj = 500.0
-        weights = np.log(1 + weight_adj * weights)
-        weights /= np.max(weights)
+    weights -= np.min(weights)
     return (triplets, weights)
 
 
-@numba.njit("void(f4[:,:],f4[:,:],f4[:,:],f4,i4,i4)", parallel=True, nogil=True)
+@njit("void(f4[:,:],f4[:,:],f4[:,:],f4,i4,i4)", parallel=True, nogil=True)
 def update_embedding(Y, grad, vel, lr, iter_num, opt_method):
     n, dim = Y.shape
     if opt_method == 0:  # sd
-        for i in numba.prange(n):
-            for d in numba.prange(dim):
+        for i in prange(n):
+            for d in prange(dim):
                 Y[i][d] -= lr * grad[i][d]
     elif opt_method == 1:  # momentum
-        if iter_num > 250:
-            gamma = 0.5
-        else:
-            gamma = 0.3
-        for i in numba.prange(n):
-            for d in numba.prange(dim):
+        gamma = _FINAL_MOMENTUM if iter_num > _SWITCH_ITER_MOMENTUM else _INIT_MOMENTUM
+        for i in prange(n):
+            for d in prange(dim):
                 vel[i][d] = gamma * vel[i][d] - lr * grad[i][d]  # - 1e-5 * Y[i,d]
                 Y[i][d] += vel[i][d]
 
 
-@numba.njit("void(f4[:,:],f4[:,:],f4[:,:],f4[:,:],f4,i4)", parallel=True, nogil=True)
+@njit("void(f4[:,:],f4[:,:],f4[:,:],f4[:,:],f4,i4)", parallel=True, nogil=True)
 def update_embedding_dbd(Y, grad, vel, gain, lr, iter_num):
     n, dim = Y.shape
-    if iter_num > 250:
-        gamma = 0.8  # moment parameter
-    else:
-        gamma = 0.5
-    min_gain = 0.01
-    for i in numba.prange(n):
-        for d in numba.prange(dim):
+    # momentum parameter
+    gamma = _FINAL_MOMENTUM if iter_num > _SWITCH_ITER_MOMENTUM else _INIT_MOMENTUM
+    for i in prange(n):
+        for d in prange(dim):
             gain[i][d] = (
-                (gain[i][d] + 0.2)
+                (gain[i][d] + _INCREASE_GAIN)
                 if (np.sign(vel[i][d]) != np.sign(grad[i][d]))
-                else np.maximum(gain[i][d] * 0.8, min_gain)
+                else np.maximum(gain[i][d] * _DAMP_GAIN, _MIN_GAIN)
             )
             vel[i][d] = gamma * vel[i][d] - lr * gain[i][d] * grad[i][d]
             Y[i][d] += vel[i][d]
 
 
-@numba.njit("f4[:,:](f4[:,:],i4,i4,i4[:,:],f4[:])", parallel=True, nogil=True)
+@njit("f4[:,:](f4[:,:],i4,i4,i4[:,:],f4[:])", parallel=True, nogil=True)
 def trimap_grad(Y, n_inliers, n_outliers, triplets, weights):
     n, dim = Y.shape
     n_triplets = triplets.shape[0]
-    grad = np.zeros((n, dim), dtype=np.float32)
+    grad = np.zeros((n + 1, dim), dtype=np.float32)
     y_ij = np.empty(dim, dtype=np.float32)
     y_ik = np.empty(dim, dtype=np.float32)
     n_viol = 0.0
@@ -478,10 +457,9 @@ def trimap_grad(Y, n_inliers, n_outliers, triplets, weights):
             grad[i, d] += gs - go
             grad[j, d] -= gs
             grad[k, d] += go
-    last = np.zeros((1, dim), dtype=np.float32)
-    last[0] = loss
-    last[1] = n_viol
-    return np.vstack((grad, last))
+    grad[-1, 0] = loss
+    grad[-1, 1] = n_viol
+    return grad
 
 
 def trimap(
@@ -498,16 +476,12 @@ def trimap(
     lr,
     n_iters,
     Yinit,
-    weight_adj,
     apply_pca,
     opt_method,
     verbose,
     return_seq,
 ):
-    """
-    Apply TriMap.
-
-    """
+    """Apply TriMap."""
 
     opt_method_dict = {"sd": 0, "momentum": 1, "dbd": 2}
     if verbose:
@@ -533,7 +507,6 @@ def trimap(
                 n_random,
                 None,
                 distance,
-                weight_adj,
                 verbose,
             )
         elif use_dist_matrix:
@@ -561,17 +534,17 @@ def trimap(
                 n_random,
                 pairwise_dist_matrix,
                 distance,
-                weight_adj,
                 verbose,
             )
         else:
             if verbose:
                 print("pre-processing")
             if distance != "hamming":
-                if dim > 100 and apply_pca:
+                if dim > _PCA_DIM and apply_pca:
                     X -= np.mean(X, axis=0)
-                    X = TruncatedSVD(n_components=100, random_state=0).fit_transform(X)
-                    dim = 100
+                    X = TruncatedSVD(
+                        n_components=_PCA_DIM, random_state=0
+                    ).fit_transform(X)
                     pca_solution = True
                     if verbose:
                         print("applied PCA")
@@ -580,7 +553,7 @@ def trimap(
                     X /= np.max(X)
                     X -= np.mean(X, axis=0)
             triplets, weights = generate_triplets(
-                X, n_inliers, n_outliers, n_random, distance, weight_adj, verbose
+                X, n_inliers, n_outliers, n_random, distance, verbose
             )
             if verbose:
                 print("sampled triplets")
@@ -588,23 +561,24 @@ def trimap(
         if verbose:
             print("using stored triplets")
 
-    if not Yinit or Yinit == "pca":
+    if Yinit == "random":
+        Y = np.random.normal(size=[n, n_dims]).astype(np.float32) * _INIT_RAND_SCALE
+    elif not Yinit or Yinit == "pca":
         if pca_solution:
-            Y = 0.01 * X[:, :n_dims]
+            Y = _INIT_PCA_SCALE * X[:, :n_dims]
         else:
-            Y = 0.01 * PCA(n_components=n_dims).fit_transform(X).astype(np.float32)
-    elif Yinit == "random":
-        Y = np.random.normal(size=[n, n_dims]).astype(np.float32) * 0.0001
+            Y = _INIT_PCA_SCALE * PCA(n_components=n_dims).fit_transform(X).astype(
+                np.float32
+            )
     else:
         Y = Yinit.astype(np.float32)
     if return_seq:
-        Y_all = np.zeros((n, n_dims, int(n_iters / 10 + 1)))
+        Y_all = np.zeros((n, n_dims, int(n_iters / _RETURN_EVERY + 1)))
         Y_all[:, :, 0] = Yinit
 
     C = np.inf
     tol = 1e-7
     n_triplets = float(triplets.shape[0])
-    lr = lr * n / n_triplets
     if verbose:
         print("running TriMap with " + opt_method)
     vel = np.zeros_like(Y, dtype=np.float32)
@@ -616,14 +590,12 @@ def trimap(
         if opt_method_dict[opt_method] == 0:
             grad = trimap_grad(Y, n_inliers, n_outliers, triplets, weights)
         else:
-            if itr > 250:
-                gamma = 0.5
-            else:
-                gamma = 0.3
+            # momentum parameter
+            gamma = _FINAL_MOMENTUM if itr > _SWITCH_ITER_MOMENTUM else _INIT_MOMENTUM
             grad = trimap_grad(
                 Y + gamma * vel, n_inliers, n_outliers, triplets, weights
             )
-        C = grad[-1, 0]
+        C = grad[-1, 0] / n_triplets
         n_viol = grad[-1, 1]
 
         # update Y
@@ -634,17 +606,14 @@ def trimap(
 
         # update the learning rate
         if opt_method_dict[opt_method] < 2:
-            if old_C > C + tol:
-                lr = lr * 1.01
-            else:
-                lr = lr * 0.9
-        if return_seq and (itr + 1) % 10 == 0:
-            Y_all[:, :, int((itr + 1) / 10)] = Y
+            lr = lr * 1.01 if old_C > C + tol else lr * 0.9
+        if return_seq and (itr + 1) % _RETURN_EVERY == 0:
+            Y_all[:, :, int((itr + 1) / _RETURN_EVERY)] = Y
         if verbose:
-            if (itr + 1) % 100 == 0:
+            if (itr + 1) % _DISP_ITER == 0:
                 print(
-                    "Iteration: %4d, Loss: %3.3f, Violated triplets: %0.4f"
-                    % (itr + 1, C, n_viol / n_triplets * 100.0)
+                    "Iteration: %4d / %4d, Loss: %3.3f, Violated triplets: %0.4f"
+                    % (itr + 1, n_iters, C, n_viol / n_triplets * 100.0)
                 )
     if verbose:
         elapsed = str(datetime.timedelta(seconds=time.time() - t))
@@ -656,8 +625,7 @@ def trimap(
 
 
 class TRIMAP(BaseEstimator):
-    """
-    Dimensionality Reduction Using Triplet Constraints
+    """TriMap: Dimensionality Reduction Using Triplet Constraints.
 
     Find a low-dimensional representation of the data by satisfying the sampled
     triplet constraints from the high-dimensional features.
@@ -667,23 +635,29 @@ class TRIMAP(BaseEstimator):
 
     n_dims: Number of dimensions of the embedding (default = 2)
 
-    n_inliers: Number of inlier points for triplet constraints (default = 10)
+    n_inliers: Number of inlier points for triplet constraints (default = 12)
 
-    n_outliers: Number of outlier points for triplet constraints (default = 5)
+    n_outliers: Number of outlier points for triplet constraints (default = 4)
 
-    n_random: Number of random triplet constraints per point (default = 5)
+    n_random: Number of random triplet constraints per point (default = 3)
 
-    distance: Distance measure ('euclidean' (default), 'manhattan', 'angular',
+    distance: Distance measure ('euclidean' (default), 'manhattan', 'angular' (or 'cosine'),
     'hamming')
 
-    lr: Learning rate (default = 1000.0)
+    lr: Learning rate (default = 0.1)
 
     n_iters: Number of iterations (default = 400)
 
-    use_dist_matrix: X is the pairwise distances between points (default = False)
+    triplets: Use pre-computed triplets (default = None)
+
+    weights: Use pre-computed weights (default = None)
+
+    use_dist_matrix: If True, X should be the pairwise distances between points (default = False)
 
     knn_tuple: Use the pre-computed nearest-neighbors information in form of a
     tuple (knn_nbrs, knn_distances), needs also X to compute the embedding (default = None)
+
+    verbose: Print the progress report (default = False)
 
     apply_pca: Apply PCA to reduce the dimensions to 100 if necessary before the
     nearest-neighbor calculation (default = True)
@@ -691,30 +665,25 @@ class TRIMAP(BaseEstimator):
     opt_method: Optimization method ('sd': steepest descent,  'momentum': GD
     with momentum, 'dbd': GD with momentum delta-bar-delta (default))
 
-    verbose: Print the progress report (default = True)
-
-    weight_adj: Adjusting the weights using a non-linear transformation
-    (default = 500.0)
-
-    return_seq: Return the sequence of maps recorded every 10 iterations
+    return_seq: Return the sequence of maps recorded every _RETURN_EVERY=10 iterations
     (default = False)
     """
 
     def __init__(
         self,
         n_dims=2,
-        n_inliers=10,
-        n_outliers=5,
-        n_random=5,
+        n_inliers=12,
+        n_outliers=4,
+        n_random=3,
         distance="euclidean",
-        lr=1000.0,
+        lr=0.1,
         n_iters=400,
         triplets=None,
         weights=None,
         use_dist_matrix=False,
         knn_tuple=None,
-        verbose=True,
-        weight_adj=500.0,
+        verbose=False,
+        weight_adj=None,
         apply_pca=True,
         opt_method="dbd",
         return_seq=False,
@@ -730,7 +699,6 @@ class TRIMAP(BaseEstimator):
         self.weights = weights
         self.use_dist_matrix = use_dist_matrix
         self.knn_tuple = knn_tuple
-        self.weight_adj = weight_adj
         self.apply_pca = apply_pca
         self.opt_method = opt_method
         self.verbose = verbose
@@ -753,18 +721,22 @@ class TRIMAP(BaseEstimator):
             self.distance = distance
         if self.distance == "hamming" and apply_pca:
             warnings.warn("apply_pca = True for Hamming distance.")
+        if self.distance == "cosine":
+            self.distance = "angular"
+        if weight_adj is not None:
+            warnings.warn("weight_adj is deprecated and will not be applied.")
+
 
         if self.verbose:
             print(
                 "TRIMAP(n_inliers={}, n_outliers={}, n_random={}, distance={}, "
-                "lr={}, n_iters={}, weight_adj={}, apply_pca={}, opt_method={}, verbose={}, return_seq={})".format(
+                "lr={}, n_iters={}, apply_pca={}, opt_method={}, verbose={}, return_seq={})".format(
                     n_inliers,
                     n_outliers,
                     n_random,
                     distance,
                     lr,
                     n_iters,
-                    weight_adj,
                     apply_pca,
                     opt_method,
                     verbose,
@@ -773,14 +745,13 @@ class TRIMAP(BaseEstimator):
             )
             if not self.apply_pca:
                 print(
-                    bold
+                    _BOLD
                     + "running ANNOY on high-dimensional data. nearest-neighbor search may be slow!"
-                    + reset
+                    + _RESET
                 )
 
     def fit(self, X, init=None):
-        """
-        Runs the TriMap algorithm on the input data X
+        """Runs TriMap on the input data X.
 
         Input
         ------
@@ -805,7 +776,6 @@ class TRIMAP(BaseEstimator):
             self.lr,
             self.n_iters,
             init,
-            self.weight_adj,
             self.apply_pca,
             self.opt_method,
             self.verbose,
@@ -840,9 +810,9 @@ class TRIMAP(BaseEstimator):
             print("pre-processing")
         X = X.astype(np.float32)
         if self.distance != "hamming":
-            if X.shape[1] > 100 and self.apply_pca:
+            if X.shape[1] > _PCA_DIM and self.apply_pca:
                 X -= np.mean(X, axis=0)
-                X = TruncatedSVD(n_components=100, random_state=0).fit_transform(X)
+                X = TruncatedSVD(n_components=_PCA_DIM, random_state=0).fit_transform(X)
                 if self.verbose:
                     print("applied PCA")
             else:
@@ -855,7 +825,6 @@ class TRIMAP(BaseEstimator):
             self.n_outliers,
             self.n_random,
             self.distance,
-            self.weight_adj,
             self.verbose,
         )
         if self.verbose:

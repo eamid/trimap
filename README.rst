@@ -66,17 +66,17 @@ The list of parameters is given blow:
 
  -  ``n_dims``: Number of dimensions of the embedding (default = 2)
 
- -  ``n_inliers``: Number of nearest neighbors for forming the nearest neighbor triplets (default = 10).
+ -  ``n_inliers``: Number of nearest neighbors for forming the nearest neighbor triplets (default = 12).
 
- -  ``n_outliers``: Number of outliers for forming the nearest neighbor triplets (default = 5).
+ -  ``n_outliers``: Number of outliers for forming the nearest neighbor triplets (default = 4).
 
- -  ``n_random``: Number of random triplets per point (default = 5).
+ -  ``n_random``: Number of random triplets per point (default = 3).
 
- -  ``distance``: Distance measure ('euclidean' (default), 'manhattan', 'angular', 'hamming')
+ -  ``distance``: Distance measure ('euclidean' (default), 'manhattan', 'angular' (or 'cosine'), 'hamming')
 
- -  ``weight_adj``: The value of gamma for the log-transformation (default = 500.0).
+ -  ~~``weight_adj``: The value of gamma for the log-transformation (default = 500.0).~~
 
- -  ``lr``: Learning rate (default = 1000.0).
+ -  ``lr``: Learning rate (default = 0.1).
 
  -  ``n_iters``: Number of iterations (default = 400).
  
@@ -90,7 +90,7 @@ The other parameters include:
 
  -  ``opt_method``: Optimization method {'sd' (steepest descent), 'momentum' (GD with momentum), 'dbd' (delta-bar-delta, default)}.
 
- -  ``verbose``: Print the progress report (default = True).
+ -  ``verbose``: Print the progress report (default = False).
 
  -  ``return_seq``: Store the intermediate results and return the results in a tensor (default = False).
 
@@ -105,8 +105,7 @@ An example of adjusting these parameters:
 
     embedding = trimap.TRIMAP(n_inliers=20,
                               n_outliers=10,
-                              n_random=10,
-                              weight_adj=1000.0).fit_transform(digits.data)
+                              n_random=10).fit_transform(digits.data)
 
 The nearest-neighbor calculation is performed using  `ANNOY <https://github.com/spotify/annoy>`_. 
 
