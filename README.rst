@@ -74,7 +74,7 @@ The list of parameters is given blow:
 
  -  ``distance``: Distance measure ('euclidean' (default), 'manhattan', 'angular' (or 'cosine'), 'hamming')
 
- -  ~~``weight_adj``: The value of gamma for the log-transformation (default = 500.0).~~
+ -  ``weight_adj`` (deprecated): The value of gamma for the log-transformation (default = 500.0).
 
  -  ``lr``: Learning rate (default = 0.1).
 
