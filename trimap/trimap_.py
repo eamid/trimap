@@ -47,6 +47,14 @@ _BOLD = "\033[1m"
 _RESET = "\033[0;0m"
 
 
+def tempered_log(x, t):
+    """Tempered log with temperature t"""
+    if np.abs(t - 1.0) < 1e-5:
+        return np.log(x)
+    else:
+        return 1.0 / (1.0 - t) * (np.power(x, 1.0 - t) - 1.0)
+
+
 @njit("f4(f4[:])")
 def l2_norm(x):
     """L2 norm of a vector."""
@@ -83,7 +91,7 @@ def angular_dist(x1, x2):
     for i in range(x1.shape[0]):
         result += x1[i] * x2[i]
     # angular is multiplied by a factor of 2.0 in annoy
-    return 2.0 * (1. - result / x1_norm / x2_norm)
+    return 2.0 * (1.0 - result / x1_norm / x2_norm)
 
 
 @njit("f4(f4[:],f4[:])")
@@ -288,7 +296,8 @@ def generate_triplets(
     n_outliers,
     n_random,
     distance="euclidean",
-    verbose=True,
+    verbose=False,
+    weight_temp=0.5,
 ):
     distance_dict = {"euclidean": 0, "manhattan": 1, "angular": 2, "hamming": 3}
     distance_index = distance_dict[distance]
@@ -324,6 +333,7 @@ def generate_triplets(
         weights = np.hstack((weights, _RAND_WEIGHT_SCALE * rand_weights))
     weights[np.isnan(weights)] = 0.0
     weights -= np.min(weights)
+    weights = tempered_log(1.0 + weights, weight_temp)
     return (triplets, weights)
 
 
@@ -336,7 +346,8 @@ def generate_triplets_known_knn(
     n_random,
     pairwise_dist_matrix=None,
     distance="euclidean",
-    verbose=True,
+    verbose=False,
+    weight_temp=0.5,
 ):
     all_distances = pairwise_dist_matrix is not None
     if all_distances:
@@ -384,6 +395,7 @@ def generate_triplets_known_knn(
         weights = np.hstack((weights, rand_weights))
     weights[np.isnan(weights)] = 0.0
     weights -= np.min(weights)
+    weights = tempered_log(1.0 + weights, weight_temp)
     return (triplets, weights)
 
 
@@ -476,6 +488,7 @@ def trimap(
     lr,
     n_iters,
     Yinit,
+    weight_temp,
     apply_pca,
     opt_method,
     verbose,
@@ -508,6 +521,7 @@ def trimap(
                 None,
                 distance,
                 verbose,
+                weight_temp,
             )
         elif use_dist_matrix:
             if verbose:
@@ -535,6 +549,7 @@ def trimap(
                 pairwise_dist_matrix,
                 distance,
                 verbose,
+                weight_temp,
             )
         else:
             if verbose:
@@ -553,7 +568,7 @@ def trimap(
                     X /= np.max(X)
                     X -= np.mean(X, axis=0)
             triplets, weights = generate_triplets(
-                X, n_inliers, n_outliers, n_random, distance, verbose
+                X, n_inliers, n_outliers, n_random, distance, verbose, weight_temp
             )
             if verbose:
                 print("sampled triplets")
@@ -633,40 +648,43 @@ class TRIMAP(BaseEstimator):
     Input
     ------
 
-    n_dims: Number of dimensions of the embedding (default = 2)
+    n_dims: Number of dimensions of the embedding (default = 2).
 
-    n_inliers: Number of inlier points for triplet constraints (default = 12)
+    n_inliers: Number of inlier points for triplet constraints (default = 12).
 
-    n_outliers: Number of outlier points for triplet constraints (default = 4)
+    n_outliers: Number of outlier points for triplet constraints (default = 4).
 
-    n_random: Number of random triplet constraints per point (default = 3)
+    n_random: Number of random triplet constraints per point (default = 3).
 
     distance: Distance measure ('euclidean' (default), 'manhattan', 'angular' (or 'cosine'),
-    'hamming')
+    'hamming').
 
-    lr: Learning rate (default = 0.1)
+    lr: Learning rate (default = 0.1).
 
-    n_iters: Number of iterations (default = 400)
+    n_iters: Number of iterations (default = 400).
 
-    triplets: Use pre-computed triplets (default = None)
+    triplets: Use pre-computed triplets (default = None).
 
-    weights: Use pre-computed weights (default = None)
+    weights: Use pre-computed weights (default = None).
 
-    use_dist_matrix: If True, X should be the pairwise distances between points (default = False)
+    use_dist_matrix: If True, X is the pairwise distances between points (default = False).
 
     knn_tuple: Use the pre-computed nearest-neighbors information in form of a
-    tuple (knn_nbrs, knn_distances), needs also X to compute the embedding (default = None)
+    tuple (knn_nbrs, knn_distances), needs also X to compute the embedding (default = None).
 
-    verbose: Print the progress report (default = False)
+    verbose: Print the progress report (default = False).
+
+    weight_temp: Temperature of the logarithm applied to the weights. Larger temperatures generate
+    more compact embeddings. weight_temp=0. corresponds to no transformation (default=0.5).
 
     apply_pca: Apply PCA to reduce the dimensions to 100 if necessary before the
-    nearest-neighbor calculation (default = True)
+    nearest-neighbor calculation (default = True).
 
     opt_method: Optimization method ('sd': steepest descent,  'momentum': GD
-    with momentum, 'dbd': GD with momentum delta-bar-delta (default))
+    with momentum, 'dbd': GD with momentum delta-bar-delta (default)).
 
     return_seq: Return the sequence of maps recorded every _RETURN_EVERY=10 iterations
-    (default = False)
+    (default = False).
     """
 
     def __init__(
@@ -684,6 +702,7 @@ class TRIMAP(BaseEstimator):
         knn_tuple=None,
         verbose=False,
         weight_adj=None,
+        weight_temp=0.5,
         apply_pca=True,
         opt_method="dbd",
         return_seq=False,
@@ -699,6 +718,7 @@ class TRIMAP(BaseEstimator):
         self.weights = weights
         self.use_dist_matrix = use_dist_matrix
         self.knn_tuple = knn_tuple
+        self.weight_temp = weight_temp
         self.apply_pca = apply_pca
         self.opt_method = opt_method
         self.verbose = verbose
@@ -724,17 +744,20 @@ class TRIMAP(BaseEstimator):
         if self.distance == "cosine":
             self.distance = "angular"
         if weight_adj is not None:
-            warnings.warn("weight_adj is deprecated and will not be applied.")
-
+            warnings.warn(
+                "'weight_adj' is deprecated and will not be applied."
+                " Adjust 'weight_temp' if needed."
+            )
 
         if self.verbose:
             print(
-                "TRIMAP(n_inliers={}, n_outliers={}, n_random={}, distance={}, "
+                "TRIMAP(n_inliers={}, n_outliers={}, n_random={}, distance={}, weight_temp={}, "
                 "lr={}, n_iters={}, apply_pca={}, opt_method={}, verbose={}, return_seq={})".format(
                     n_inliers,
                     n_outliers,
                     n_random,
                     distance,
+                    weight_temp,
                     lr,
                     n_iters,
                     apply_pca,
@@ -776,6 +799,7 @@ class TRIMAP(BaseEstimator):
             self.lr,
             self.n_iters,
             init,
+            self.weight_temp,
             self.apply_pca,
             self.opt_method,
             self.verbose,
@@ -826,6 +850,7 @@ class TRIMAP(BaseEstimator):
             self.n_random,
             self.distance,
             self.verbose,
+            self.weight_temp,
         )
         if self.verbose:
             print("sampled triplets")
