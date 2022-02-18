@@ -21,6 +21,12 @@ CIFAR-10 dataset (test set) passed through a CNN (*n = 10,000, d = 1024*): Notic
 
 The following implementation is in Python. Further details and more experimental results are available in the `paper <https://arxiv.org/abs/1910.00204>`_. 
 
+-----------------
+News!
+-----------------
+
+[Feb 17, 2022] A JAX implementation is now available at https://github.com/google-research/google-research/tree/master/trimap. More updates are coming soon!
+
 
 -----------------
 How to use TriMap
