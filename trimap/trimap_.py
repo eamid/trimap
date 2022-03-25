@@ -718,6 +718,7 @@ class TRIMAP(BaseEstimator):
         self.weights = weights
         self.use_dist_matrix = use_dist_matrix
         self.knn_tuple = knn_tuple
+        self.weight_adj = weight_adj
         self.weight_temp = weight_temp
         self.apply_pca = apply_pca
         self.opt_method = opt_method
