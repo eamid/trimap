@@ -526,8 +526,7 @@ def trimap(
         elif use_dist_matrix:
             if verbose:
                 print("using distance matrix")
-            pairwise_dist_matrix = X
-            pairwise_dist_matrix = pairwise_dist_matrix.astype(np.float32)
+            pairwise_dist_matrix = np.array(X, dtype=np.float32)
             n_extra = min(n_inliers + 50, n)
             knn_nbrs = np.zeros((n, n_extra), dtype=np.int32)
             knn_distances = np.zeros((n, n_extra), dtype=np.float32)
