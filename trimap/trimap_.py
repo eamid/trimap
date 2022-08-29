@@ -588,7 +588,7 @@ def trimap(
         Y = Yinit.astype(np.float32)
     if return_seq:
         Y_all = np.zeros((n, n_dims, int(n_iters / _RETURN_EVERY + 1)))
-        Y_all[:, :, 0] = Yinit
+        Y_all[:, :, 0] = Y
 
     C = np.inf
     tol = 1e-7
