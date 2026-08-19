@@ -575,9 +575,9 @@ def trimap(
         if verbose:
             print("using stored triplets")
 
-    if Yinit == "random":
+    if isinstance(Yinit, str) and Yinit == "random":
         Y = np.random.normal(size=[n, n_dims]).astype(np.float32) * _INIT_RAND_SCALE
-    elif not Yinit or Yinit == "pca":
+    elif Yinit is None or (isinstance(Yinit, str) and Yinit == "pca"):
         if pca_solution:
             Y = _INIT_PCA_SCALE * X[:, :n_dims]
         else:

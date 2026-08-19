@@ -117,7 +117,131 @@ An example of adjusting these parameters:
                               n_outliers=10,
                               n_random=10).fit_transform(digits.data)
 
-The nearest-neighbor calculation is performed using  `ANNOY <https://github.com/spotify/annoy>`_. 
+The nearest-neighbor calculation in the legacy implementation is performed
+using `ANNOY <https://github.com/spotify/annoy>`_.
+
+
+----------------------------
+GPU-parallel PyTorch version
+----------------------------
+
+``TorchTRIMAP`` is a tensor-native implementation of the complete pipeline. It
+keeps preprocessing, nearest-neighbor results, triplets, weights, the loss,
+gradient, optimizer state, and embedding on the selected accelerator. The
+native nearest-neighbor search is exact and blocked, so it does not allocate an
+``n x n`` distance matrix.
+
+A single ``import trimap`` exposes both estimator APIs:
+
+.. code:: python
+
+    import trimap
+
+    legacy_model = trimap.TRIMAP()
+    torch_model = trimap.TorchTRIMAP(device="cuda")
+
+``trimap.TRIMAP`` is the legacy NumPy/Numba implementation, while
+``trimap.TorchTRIMAP`` runs the tensor-native pipeline. Both provide
+``fit_transform``. A NumPy array can be passed directly to the PyTorch version;
+it is moved to the selected device before preprocessing:
+
+.. code:: python
+
+    import numpy as np
+    import trimap
+    from sklearn.datasets import load_digits
+
+    X = np.asarray(load_digits().data, dtype=np.float32)
+    model = trimap.TorchTRIMAP(
+        device="cuda",
+        knn_backend="auto",
+        n_iters=400,
+        random_state=42,
+        triplet_batch_size=1_000_000,
+    )
+
+    embedding = model.fit_transform(X)
+    embedding_numpy = embedding.detach().cpu().numpy()
+
+The returned embedding is a PyTorch tensor on the input/selected device. Use
+``embedding.detach().cpu().numpy()`` only when a NumPy consumer needs it. The
+pipeline runs preprocessing/PCA, nearest-neighbor search, triplet and weight
+construction, initialization, and gradient-descent optimization on that
+device.
+
+For a large CUDA data set such as Covertype, after removing its target column:
+
+.. code:: python
+
+    model = trimap.TorchTRIMAP(
+        device="cuda",
+        knn_backend="cuvs-cagra",
+        gradient="explicit",
+        n_iters=400,
+        random_state=42,
+        triplet_batch_size=30_000_000,
+    )
+    embedding = model.fit_transform(X[:, :54])
+
+Nearest-neighbor backends
+-------------------------
+
+The PyTorch implementation does not use Annoy. It supports these open-source
+alternatives:
+
+* ``torch``: exact batched search with ``torch.cdist``/matrix multiplication;
+  supports CUDA, MPS, CPU, and every TriMap distance.
+* ``faiss-flat`` (or ``faiss``): exact `Faiss
+  <https://github.com/facebookresearch/faiss>`_ Flat search for Euclidean/cosine
+  data. A CUDA-enabled Faiss build accepts resident PyTorch tensors directly.
+* ``faiss-ivf``: approximate inverted-file search for large data sets.
+* ``cuvs-cagra``: `NVIDIA cuVS <https://github.com/rapidsai/cuvs>`_ CAGRA, a
+  GPU-native graph ANN intended for very large CUDA data sets.
+
+``knn_backend="auto"`` chooses cuVS CAGRA for large CUDA inputs when installed,
+then Faiss, and otherwise uses exact PyTorch. The cutoff is controlled by
+``ann_threshold``. Install the optional CPU Faiss dependency with
+``pip install -e '.[faiss]'``. CUDA Faiss is normally installed with conda.
+Install ``cuvs-cu12`` or ``cuvs-cu13`` to match the machine's CUDA runtime; it
+is intentionally not a universal dependency because CUDA wheels are
+platform-specific. On macOS use the native ``torch`` backend: current CPU
+Faiss and PyTorch wheels can load conflicting OpenMP runtimes in one process.
+
+The memory/speed controls are ``query_batch_size`` and
+``database_batch_size`` for native k-NN, ``distance_batch_size`` for high-
+dimensional indexed distances, and ``triplet_batch_size`` for optimization.
+Larger values use more accelerator memory and launch fewer kernels.
+
+Gradient implementations
+------------------------
+
+``gradient="explicit"`` is the default and uses parallel ``index_add_``
+reductions for the fastest, lower-memory optimization path. Set
+``gradient="autograd"`` to backpropagate through independent triplet batches;
+the graph is released after each batch.
+``trimap.trimap_loss`` and ``trimap.trimap_explicit_grad`` are public for custom
+training loops and gradient checks. Both PyTorch gradient paths include the
+mathematical factor of two omitted by the historical Numba kernel;
+``TorchTRIMAP`` compensates internally so its public ``lr`` has the same step-size
+meaning as legacy ``TRIMAP``.
+
+When supplying ``knn_tuple``, pass features in the same coordinate system used
+to calculate the supplied neighbor distances. As in legacy ``TRIMAP``, that
+precomputed-neighbor path does not normalize the features again.
+
+Parity benchmark
+----------------
+
+The parity benchmark gives both implementations identical inputs,
+initialization, triplets, weights, iteration count, and optimizer settings. It
+reports runtime, speedup, and absolute/relative embedding error:
+
+.. code:: bash
+
+    python benchmarks/benchmark_legacy_parity.py --device mps --n 10000
+
+This isolates optimization parity from the intentionally independent random
+triplet samples used by the two full pipelines.
 
 
 --------
@@ -274,5 +398,3 @@ License
 -------
 
 Please see the LICENSE file.
-
-
