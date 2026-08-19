@@ -25,6 +25,9 @@ The following implementation is in Python. Further details and more experimental
 News!
 -----------------
 
+[Aug 18, 2026] A GPU-parallel PyTorch implementation is now available as
+``trimap.TorchTRIMAP``, with support for CUDA, MPS, and CPU.
+
 [Mar 16, 2022] An example colab using TriMap `JAX implementation <https://github.com/google-research/google-research/tree/master/trimap>`_ is now available at https://github.com/eamid/examples/blob/master/TriMap.ipynb. We analyze the results on S-curve, MNIST, Fashion MNIST, etc. using t-SNE, UMAP, TriMap, and PCA.
 
 [Feb 17, 2022] A JAX implementation is now available at https://github.com/google-research/google-research/tree/master/trimap. More updates are coming soon!
