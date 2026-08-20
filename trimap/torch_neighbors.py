@@ -137,11 +137,15 @@ def torch_knn(
 
 
 def _ensure_self_first(
-    indices: torch.Tensor, distances: torch.Tensor, k: int
+    indices: torch.Tensor,
+    distances: torch.Tensor,
+    k: int,
+    *,
+    row_offset: int = 0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Canonicalize a self-query result even when an ANN omitted the query."""
     n = indices.shape[0]
-    rows = torch.arange(n, device=indices.device)[:, None]
+    rows = torch.arange(row_offset, row_offset + n, device=indices.device)[:, None]
     if k == 1:
         return rows, torch.zeros((n, 1), dtype=distances.dtype, device=distances.device)
 
@@ -281,15 +285,6 @@ def _faiss_knn(
     return _ensure_self_first(indices, distances, k)
 
 
-def _from_dlpack(value: object, device: torch.device) -> torch.Tensor:
-    if isinstance(value, torch.Tensor):
-        return value.to(device)
-    try:
-        return torch.utils.dlpack.from_dlpack(value).to(device)  # type: ignore[arg-type]
-    except (TypeError, RuntimeError):
-        return torch.as_tensor(value, device=device)
-
-
 @torch.no_grad()
 def _cuvs_cagra_knn(
     inputs: torch.Tensor,
@@ -314,28 +309,60 @@ def _cuvs_cagra_knn(
     x = inputs.detach().to(dtype=torch.float32).contiguous()
     if metric == "cosine":
         x = F.normalize(x, dim=1, eps=1e-20)
-    build_params = cagra.IndexParams(
-        metric="sqeuclidean", intermediate_graph_degree=128, graph_degree=64
-    )
+    build_options = {
+        "metric": "sqeuclidean",
+        "intermediate_graph_degree": 128,
+        "graph_degree": 64,
+    }
+    try:
+        # NN-descent is both faster and robust to highly duplicated data such
+        # as KDDCup99, for which cuVS's default IVF-PQ builder can produce an
+        # invalid intermediate graph containing duplicate neighbor nodes.
+        build_params = cagra.IndexParams(**build_options, build_algo="nn_descent")
+    except TypeError:
+        # cuVS releases before the NN-descent option was exposed still work
+        # with their default graph builder.
+        build_params = cagra.IndexParams(**build_options)
     index = cagra.build(build_params, x)
-    search_params = cagra.SearchParams()
-    search_k = min(x.shape[0], k + 1)
+
+    # CAGRA's finished graph already contains ``graph_degree`` candidate
+    # neighbors for every indexed point.  Since this is always a self-query,
+    # searching every input against the graph again is redundant and becomes
+    # dominant at multi-million-point scale.  Rank the graph candidates by
+    # their actual distance in bounded batches instead.
+    graph = index.graph
+    if graph.shape[1] < k - 1:
+        raise RuntimeError(
+            f"CAGRA graph has only {graph.shape[1]} neighbors; {k - 1} required"
+        )
     distance_parts: list[torch.Tensor] = []
     index_parts: list[torch.Tensor] = []
     for start in range(0, x.shape[0], query_batch_size):
-        distances, indices = cagra.search(
-            search_params, index, x[start : start + query_batch_size], search_k
+        end = min(start + query_batch_size, x.shape[0])
+        # cuVS exposes an immutable CUDA array view for the graph, while
+        # PyTorch rejects read-only ``__cuda_array_interface__`` objects.
+        # Copy only this bounded slice through host memory before returning it
+        # to the device; the large feature and graph storage remains in CUDA.
+        graph_slice = graph.slice_rows(start, end).copy_to_host()
+        candidate_indices = torch.as_tensor(
+            graph_slice, device=inputs.device, dtype=torch.long
         )
-        distance_parts.append(_from_dlpack(distances, inputs.device))
-        index_parts.append(_from_dlpack(indices, inputs.device))
-    distances = torch.cat(distance_parts).to(inputs.dtype)
-    indices = torch.cat(index_parts).long()
-    if metric == "euclidean":
-        distances = distances.clamp_min_(0).sqrt_()
-    else:
-        # Unit-vector squared L2 distance is twice cosine distance.
-        distances = distances * 0.5
-    return _ensure_self_first(indices, distances, k)
+        candidate_vectors = x[candidate_indices]
+        if metric == "euclidean":
+            candidate_vectors.sub_(x[start:end, None, :]).square_()
+            candidate_distances = candidate_vectors.sum(dim=-1).sqrt_()
+        else:
+            candidate_vectors.mul_(x[start:end, None, :])
+            candidate_distances = 1.0 - candidate_vectors.sum(dim=-1)
+        indices, distances = _ensure_self_first(
+            candidate_indices,
+            candidate_distances,
+            k,
+            row_offset=start,
+        )
+        distance_parts.append(distances)
+        index_parts.append(indices)
+    return torch.cat(index_parts), torch.cat(distance_parts).to(inputs.dtype)
 
 
 @torch.no_grad()
