@@ -2,11 +2,24 @@ import pytest
 import torch
 
 from trimap.torch_neighbors import (
+    _ensure_self_first,
     canonical_metric,
     resolve_knn_backend,
     rowwise_distances,
     torch_knn,
 )
+
+
+def test_ensure_self_first_supports_batched_row_offsets() -> None:
+    indices = torch.tensor([[8, 5, 7], [9, 8, 7]])
+    distances = torch.tensor([[0.2, 0.0, 0.1], [0.3, 0.1, 0.2]])
+
+    actual_indices, actual_distances = _ensure_self_first(
+        indices, distances, 2, row_offset=5
+    )
+
+    torch.testing.assert_close(actual_indices, torch.tensor([[5, 7], [6, 8]]))
+    torch.testing.assert_close(actual_distances, torch.tensor([[0.0, 0.1], [0.0, 0.1]]))
 
 
 def test_rowwise_distances() -> None:
